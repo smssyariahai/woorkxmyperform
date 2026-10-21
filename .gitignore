@@ -1,0 +1,12 @@
+node_modules/
+.next/
+out/
+.env
+.env.local
+*.log
+.DS_Store
+.wa-sessions/
+
+# data runtime & file pelanggan — tidak ikut ke GitHub
+uploads/
+*.tsbuildinfo

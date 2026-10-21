@@ -1,0 +1,169 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Animasi mengambang untuk marker agent yang sedang siaga di denah kantor */
+@keyframes kantor-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+.animate-kantor-float {
+  animation: kantor-float 3.5s ease-in-out infinite;
+}
+
+/* Langkah kaki: marker "berjalan" saat menuju meja agent lain */
+@keyframes kantor-walk {
+  0%, 100% { transform: translateY(0); }
+  25% { transform: translateY(-4px); }
+  50% { transform: translateY(0); }
+  75% { transform: translateY(-4px); }
+}
+.animate-kantor-walk {
+  animation: kantor-walk 0.7s ease-in-out infinite;
+}
+
+/* Karakter 2D: mengetik (bekerja), bernapas (siaga), bergoyang (error) */
+@keyframes kantor-type {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+@keyframes kantor-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04) translateY(-1px); }
+}
+@keyframes kantor-shake {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-4deg); }
+  75% { transform: rotate(4deg); }
+}
+
+:root {
+  --brand: #087bff;
+  --brand-dark: #0f2a4a;
+  --brand-50: #eaf5ff;
+  --ink-rgb: 22 50 79;
+  --muted-rgb: 100 116 139;
+  --line-rgb: 229 231 235;
+  --canvas-rgb: 248 250 252;
+}
+
+.dark {
+  --ink-rgb: 226 232 240;
+  --muted-rgb: 148 163 184;
+  --line-rgb: 30 41 59;
+  --canvas-rgb: 11 18 32;
+}
+
+@layer base {
+  * {
+    @apply border-line;
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    @apply bg-canvas text-ink font-sans text-[14px] leading-relaxed;
+    -webkit-tap-highlight-color: transparent;
+    text-rendering: optimizeLegibility;
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-slate-300 dark:bg-slate-700 rounded-full;
+  }
+  :focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* Kontainer halaman standar: padding responsif + lebar maks konsisten */
+  .pg {
+    @apply w-full min-w-0 max-w-[1400px] mx-auto p-4 sm:p-6 lg:p-8 space-y-4 sm:space-y-6;
+  }
+  /* Cegah grid blowout: anak grid harus bisa menyusut di layar kecil */
+  .grid > * {
+    min-width: 0;
+  }
+  .card {
+    @apply bg-white dark:bg-slate-900 border border-line rounded-card shadow-soft;
+  }
+  .input {
+    @apply w-full rounded-input border border-line bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm text-ink placeholder:text-muted/70 transition-colors focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/15 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .label {
+    @apply block text-[13px] font-medium text-ink mb-1.5;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-btn px-4 py-2.5 text-sm font-semibold transition-all focus-visible:outline-2 disabled:opacity-50 disabled:pointer-events-none select-none;
+  }
+  .btn-primary {
+    @apply btn bg-brand text-white hover:bg-brand-600 active:scale-[.98] shadow-sm;
+  }
+  .btn-secondary {
+    @apply btn bg-white dark:bg-slate-800 border border-line text-ink hover:bg-slate-50 dark:hover:bg-slate-700 active:scale-[.98];
+  }
+  .btn-danger {
+    @apply btn bg-danger text-white hover:brightness-95 active:scale-[.98];
+  }
+  .btn-ghost {
+    @apply btn text-muted hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-ink;
+  }
+  .badge {
+    @apply inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap;
+  }
+  .badge-green {
+    @apply badge bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300;
+  }
+  .badge-amber {
+    @apply badge bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300;
+  }
+  .badge-blue {
+    @apply badge bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-100;
+  }
+  .badge-red {
+    @apply badge bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300;
+  }
+  .badge-gray {
+    @apply badge bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300;
+  }
+  .table-wrap {
+    @apply overflow-x-auto rounded-card border border-line bg-white dark:bg-slate-900;
+  }
+  .table {
+    @apply w-full text-sm;
+  }
+  .table thead th {
+    @apply text-left text-[11px] uppercase tracking-wide text-muted font-semibold px-4 py-3 border-b border-line bg-slate-50/60 dark:bg-slate-800/40 whitespace-nowrap;
+  }
+  .table tbody td {
+    @apply px-4 py-3 border-b border-line/70 last:border-0 align-middle;
+  }
+  .table tbody tr {
+    @apply hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors;
+  }
+  .skeleton {
+    @apply animate-pulse bg-slate-200 dark:bg-slate-700 rounded;
+  }
+  /* Animasi drawer navigasi mobile */
+  @keyframes drawer-in {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(0); }
+  }
+  .animate-drawer-in {
+    animation: drawer-in 0.25s ease-out;
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  .animate-fade-in {
+    animation: fade-in 0.2s ease-out;
+  }
+}
