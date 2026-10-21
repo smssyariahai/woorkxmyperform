@@ -6,19 +6,19 @@ import { Card, CardTitle, Badge } from '@/components/ui/primitives';
 import { Field } from '@/components/ui/input';
 import { Input } from '@/components/ui/input';
 import { SearchInput, Pagination } from '@/components/ui/search';
-import { Plus, Pencil, Power, KeyRound, UserCog } from 'lucide-react';
+import { Plus, Pencil, Power, KeyRound, UserCog, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Member {
   id: string;
-  user: { id: string; name: string; email: string; phone: string | null; status: string };
+  user: { id: string; name: string; email: string; phone: string | null; status: string; isSuperAdmin: boolean };
   role: { id: string; name: string };
   department: { id: string; name: string } | null;
   jobTitle: string | null;
   status: string;
 }
 
-export function UsersClient({ perms }: { perms: string[] }) {
+export function UsersClient({ perms, isSuperAdmin, currentUserId }: { perms: string[]; isSuperAdmin: boolean; currentUserId: string }) {
   const [items, setItems] = useState<Member[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [depts, setDepts] = useState<any[]>([]);
@@ -27,7 +27,7 @@ export function UsersClient({ perms }: { perms: string[] }) {
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [modal, setModal] = useState<null | 'add' | 'edit' | 'role' | 'reset'>(null);
+  const [modal, setModal] = useState<null | 'add' | 'edit' | 'role' | 'reset' | 'super'>(null);
   const [sel, setSel] = useState<Member | null>(null);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', roleId: '', departmentId: '', jobTitle: '' });
@@ -170,6 +170,31 @@ export function UsersClient({ perms }: { perms: string[] }) {
     }
   }
 
+  async function submitSuper() {
+    if (!sel) return;
+    const target = !sel.user.isSuperAdmin;
+    if (!confirm(target
+      ? `Jadikan ${sel.user.name} sebagai Administrator Pusat?\n\nIa akan mendapat akses penuh: semua kantor, paket & billing, Saldo Master, Pengaturan Sistem, dan hapus kantor.`
+      : `Cabut status Administrator Pusat dari ${sel.user.name}?\n\nIa kehilangan akses ke semua menu pusat (kelola kantor, billing, Saldo Master, Pengaturan Sistem).`)) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`/api/admin/users/${sel.id}/super-admin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isSuperAdmin: target }),
+      });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.message);
+      toast.success(target ? `${sel.user.name} kini Administrator Pusat.` : `Status Administrator Pusat ${sel.user.name} dicabut.`);
+      setModal(null);
+      load();
+    } catch (e: any) {
+      toast.error(e.message || 'Gagal mengubah status Administrator Pusat.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submitReset() {
     if (!sel || form.password.length < 8) {
       toast.error('Password minimal 8 karakter.');
@@ -230,7 +255,12 @@ export function UsersClient({ perms }: { perms: string[] }) {
               <tr key={m.id}>
                 <td className="font-medium text-ink">{m.user.name}</td>
                 <td className="text-muted">{m.user.email}</td>
-                <td><Badge tone="blue">{m.role.name}</Badge></td>
+                <td>
+                  <span className="inline-flex flex-wrap gap-1">
+                    <Badge tone="blue">{m.role.name}</Badge>
+                    {m.user.isSuperAdmin && <Badge tone="amber">Administrator Pusat</Badge>}
+                  </span>
+                </td>
                 <td className="text-muted">{m.department?.name ?? '—'}</td>
                 <td className="text-muted">{m.jobTitle ?? '—'}</td>
                 <td><Badge tone={m.status === 'ACTIVE' ? 'green' : 'gray'}>{m.status === 'ACTIVE' ? 'Aktif' : 'Nonaktif'}</Badge></td>
@@ -241,6 +271,9 @@ export function UsersClient({ perms }: { perms: string[] }) {
                     )}
                     {can('USERS_ASSIGN_ROLE') && (
                       <button onClick={() => { setSel(m); setForm((f) => ({ ...f, roleId: m.role.id })); setModal('role'); }} title="Ubah role" className="rounded-btn p-2 text-muted hover:bg-slate-100 hover:text-ink"><UserCog className="h-4 w-4" /></button>
+                    )}
+                    {isSuperAdmin && (
+                      <button onClick={() => { setSel(m); setModal('super'); }} title="Administrator Pusat" className={cn('rounded-btn p-2 transition-colors', m.user.isSuperAdmin ? 'text-amber-500 hover:bg-amber-50' : 'text-muted hover:bg-slate-100 hover:text-ink')}><ShieldCheck className="h-4 w-4" /></button>
                     )}
                     {can('USERS_UPDATE') && (
                       <button onClick={() => { setSel(m); setForm((f) => ({ ...f, password: '' })); setModal('reset'); }} title="Reset password" className="rounded-btn p-2 text-muted hover:bg-slate-100 hover:text-ink"><KeyRound className="h-4 w-4" /></button>
@@ -318,6 +351,38 @@ export function UsersClient({ perms }: { perms: string[] }) {
           </Field>
           <p className="text-[12.5px] text-muted mt-3">Permission yang diberikan mengikuti role baru. Perubahan berlaku pada permintaan berikutnya.</p>
           <ModalFoot onClose={() => setModal(null)} onSave={submitRole} busy={busy} saveLabel="Ubah Role" />
+        </Modal>
+      )}
+
+      {/* Modal Administrator Pusat */}
+      {modal === 'super' && sel && (
+        <Modal title={`Administrator Pusat — ${sel.user.name}`} onClose={() => setModal(null)}>
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-muted">Status saat ini:</span>
+              {sel.user.isSuperAdmin
+                ? <Badge tone="amber">Administrator Pusat</Badge>
+                : <Badge tone="gray">Bukan Administrator Pusat</Badge>}
+            </div>
+            <p className="text-[13px] text-muted leading-relaxed">
+              Administrator Pusat adalah status global akun (berlaku di semua kantor, terpisah dari role kantor).
+              Pemegangnya dapat membuka menu pusat: kelola semua kantor, paket &amp; billing, Saldo Master,
+              Pengaturan Sistem, dan menghapus kantor.
+            </p>
+            {sel.user.id === currentUserId && sel.user.isSuperAdmin && (
+              <p className="text-[12.5px] text-amber-600 bg-amber-50 rounded-btn px-3 py-2">
+                Ini akun Anda sendiri — statusnya tidak dapat dicabut dari sini agar Anda tidak terkunci dari akses pusat.
+              </p>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={() => setModal(null)} className="btn-ghost !py-2 text-[13px]">Batal</button>
+            {!(sel.user.id === currentUserId && sel.user.isSuperAdmin) && (
+              <button onClick={submitSuper} disabled={busy} className={cn('btn-primary !py-2 text-[13px]', !sel.user.isSuperAdmin ? '' : '!bg-red-600 hover:!bg-red-700')}>
+                {busy ? 'Menyimpan…' : sel.user.isSuperAdmin ? 'Cabut Status' : 'Jadikan Administrator Pusat'}
+              </button>
+            )}
+          </div>
         </Modal>
       )}
 

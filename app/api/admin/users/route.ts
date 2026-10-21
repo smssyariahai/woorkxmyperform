@@ -36,7 +36,7 @@ export async function GET(req: Request) {
       prisma.membership.findMany({
         where,
         include: {
-          user: { select: { id: true, name: true, email: true, phone: true, avatar: true, status: true, createdAt: true } },
+          user: { select: { id: true, name: true, email: true, phone: true, avatar: true, status: true, isSuperAdmin: true, createdAt: true } },
           role: { select: { id: true, name: true } },
           department: { select: { id: true, name: true } },
         },

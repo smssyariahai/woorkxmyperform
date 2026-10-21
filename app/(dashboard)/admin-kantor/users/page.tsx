@@ -7,5 +7,5 @@ export default async function UsersPage() {
   if (!ctx) redirect('/login');
   const keys = await getUserPermissions(ctx);
   if (!ctx.isSuperAdmin && !keys.has('USERS_VIEW')) redirect('/admin-kantor');
-  return <UsersClient perms={[...keys]} />;
+  return <UsersClient perms={[...keys]} isSuperAdmin={ctx.isSuperAdmin} currentUserId={ctx.userId} />;
 }
