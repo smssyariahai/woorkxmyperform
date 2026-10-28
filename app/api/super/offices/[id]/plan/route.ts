@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireSuperAdmin } from '@/lib/auth-helpers';
+import { requirePlatformPermission } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { PLANS, getPlan } from '@/lib/plans';
 
@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 /** GET /api/super/offices/[id]/plan — paket kantor (Administrator Pusat) */
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   try {
-    await requireSuperAdmin(req);
+    await requirePlatformPermission('PLATFORM_TENANTS_VIEW', req);
     const sub = await prisma.subscription.findUnique({
       where: { organizationId: params.id },
       select: { plan: true, status: true, currentPeriodEnd: true, trialEndsAt: true },

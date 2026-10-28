@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireSuperAdmin } from '@/lib/auth-helpers';
+import { requirePlatformPermission } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -15,7 +15,7 @@ const TYPE_LABEL: Record<string, string> = {
 /** GET /api/super/master/transactions — riwayat transaksi Saldo Master */
 export async function GET(req: Request) {
   try {
-    await requireSuperAdmin(req);
+    await requirePlatformPermission('PLATFORM_MASTER_VIEW', req);
     const url = new URL(req.url);
     const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10));
     const perPage = Math.min(100, Math.max(10, parseInt(url.searchParams.get('perPage') || '20', 10)));

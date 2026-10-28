@@ -36,6 +36,10 @@ interface NavItem {
   badge?: string;
   /** permission yang dibutuhkan (salah satu). Kosong = selalu tampil. */
   perms?: string[];
+  /** permission platform yang dibutuhkan (salah satu). Dipakai menu Administrator Pusat. */
+  platformPerms?: string[];
+  /** hanya Administrator Pusat (bukan Admin WOORK). */
+  superOnly?: boolean;
 }
 
 const NAV: NavItem[] = [
@@ -59,13 +63,15 @@ const ADMIN_OFFICE: NavItem[] = [
   { href: '/admin-kantor/office', label: 'Pengaturan Kantor', icon: Settings, perms: ['SETTINGS_MANAGE'] },
 ];
 
-/** Menu Administrator Pusat. */
+/** Menu Administrator Pusat. Item ber-platformPerms tampil untuk Admin WOORK
+ *  yang memegang salah satu permission tersebut; superOnly hanya untuk super admin. */
 const SUPERADMIN: NavItem[] = [
-  { href: '/admin', label: 'Dashboard Pusat', icon: Crown },
-  { href: '/admin/offices', label: 'Kantor', icon: Globe2 },
-  { href: '/admin/saldo-master', label: 'Saldo Master', icon: Wallet },
-  { href: '/admin/audit', label: 'Audit Global', icon: ShieldCheck },
-  { href: '/admin/pengaturan', label: 'Pengaturan Sistem', icon: Settings2 },
+  { href: '/admin', label: 'Dashboard Pusat', icon: Crown, platformPerms: ['PLATFORM_TENANTS_VIEW', 'PLATFORM_MASTER_VIEW', 'PLATFORM_AUDIT_VIEW'] },
+  { href: '/admin/offices', label: 'Kantor', icon: Globe2, platformPerms: ['PLATFORM_TENANTS_VIEW', 'PLATFORM_TENANTS_MANAGE'] },
+  { href: '/admin/saldo-master', label: 'Saldo Master', icon: Wallet, platformPerms: ['PLATFORM_MASTER_VIEW', 'PLATFORM_MASTER_MANAGE'] },
+  { href: '/admin/audit', label: 'Audit Global', icon: ShieldCheck, platformPerms: ['PLATFORM_AUDIT_VIEW'] },
+  { href: '/admin/platform-admins', label: 'Admin WOORK', icon: KeyRound, superOnly: true },
+  { href: '/admin/pengaturan', label: 'Pengaturan Sistem', icon: Settings2, superOnly: true },
 ];
 
 const BOTTOM: NavItem[] = [
@@ -88,6 +94,7 @@ export function Sidebar({
   role,
   isSuperAdmin,
   permissions,
+  platformPermissions,
   memberships,
   unread,
   collapsed,
@@ -100,6 +107,7 @@ export function Sidebar({
   role: string;
   isSuperAdmin: boolean;
   permissions: string[];
+  platformPermissions: string[];
   memberships: MembershipInfo[];
   unread: number;
   collapsed: boolean;
@@ -117,6 +125,17 @@ export function Sidebar({
     if (isSuperAdmin) return true;
     const set = new Set(permissions);
     return perms.some((p) => set.has(p));
+  };
+
+  /** Visibilitas satu item menu: superOnly > platformPerms > perms tenant. */
+  const canItem = (n: NavItem) => {
+    if (n.superOnly) return isSuperAdmin;
+    if (n.platformPerms) {
+      if (isSuperAdmin) return true;
+      const set = new Set(platformPermissions);
+      return n.platformPerms.some((p) => set.has(p));
+    }
+    return can(n.perms);
   };
 
   async function switchOrg(targetOrgId: string) {
@@ -150,7 +169,7 @@ export function Sidebar({
   };
 
   const item = (n: NavItem, all: NavItem[]) => {
-    if (!can(n.perms)) return null;
+    if (!canItem(n)) return null;
     const active = isActive(n.href, all);
     return (
       <Link
@@ -176,7 +195,7 @@ export function Sidebar({
   };
 
   const section = (title: string, items: NavItem[]) => {
-    const visible = items.filter((n) => can(n.perms));
+    const visible = items.filter((n) => canItem(n));
     if (visible.length === 0) return null;
     return (
       <div className="pt-1">
@@ -267,7 +286,7 @@ export function Sidebar({
       <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-1" aria-label="Navigasi utama">
         {NAV.map((n) => item(n, NAV))}
         {section('Admin Kantor', ADMIN_OFFICE)}
-        {isSuperAdmin && section('Administrator Pusat', SUPERADMIN)}
+        {section('Administrator Pusat', SUPERADMIN)}
       </nav>
 
       <div className="px-3 pb-2 space-y-1 border-t border-line pt-3">

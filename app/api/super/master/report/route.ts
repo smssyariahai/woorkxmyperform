@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireSuperAdmin } from '@/lib/auth-helpers';
+import { requirePlatformPermission } from '@/lib/auth-helpers';
 import { apiErr } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 /** GET /api/super/master/report — unduh laporan transaksi Saldo Master (CSV) */
 export async function GET(req: Request) {
   try {
-    await requireSuperAdmin(req);
+    await requirePlatformPermission('PLATFORM_MASTER_VIEW', req);
     const rows = await prisma.masterLedger.findMany({
       orderBy: { createdAt: 'desc' },
       take: 5000,

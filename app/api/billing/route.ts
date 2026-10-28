@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireAuth, requireSuperAdmin } from '@/lib/auth-helpers';
+import { requireAuth, requirePlatformPermission } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { audit, getClientIp } from '@/lib/audit';
 import { PLANS, PLAN_KEYS, getPlan } from '@/lib/plans';
@@ -42,7 +42,7 @@ const changePlanSchema = z.object({
  */
 export async function PUT(req: Request) {
   try {
-    const ctx = await requireSuperAdmin(req);
+    const ctx = await requirePlatformPermission('PLATFORM_PACKAGES_MANAGE', req);
     const body = await req.json();
     const parsed = changePlanSchema.safeParse(body);
     if (!parsed.success) return apiErr('Data tidak valid.', 422);

@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireSuperAdmin } from '@/lib/auth-helpers';
+import { requirePlatformPermission } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { audit, getClientIp } from '@/lib/audit';
 import { AVAILABLE_MODULES } from '@/lib/modules';
@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 /** PATCH /api/super/offices/:id — edit kantor (nama, status aktif, modul). */
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   try {
-    const ctx = await requireSuperAdmin(req);
+    const ctx = await requirePlatformPermission('PLATFORM_TENANTS_MANAGE', req);
     const org = await prisma.organization.findUnique({ where: { id: params.id } });
     if (!org) return apiErr('Kantor tidak ditemukan.', 404);
 
@@ -79,7 +79,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 /** DELETE /api/super/offices/:id — hapus kantor permanen (HANYA Administrator Pusat). */
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   try {
-    const ctx = await requireSuperAdmin(req);
+    const ctx = await requirePlatformPermission('PLATFORM_TENANTS_MANAGE', req);
 
     const org = await prisma.organization.findUnique({
       where: { id: params.id },

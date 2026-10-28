@@ -45,8 +45,8 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
           throw apiErr('Anda tidak memiliki akses PERMISSIONS_MANAGE.', 403);
         }
         const validKeys = new Set(PERMISSION_CATALOG.map((p) => p.key));
-        const permissions = [...new Set(body.permissions as string[])].filter((k) =>
-          validKeys.has(k as PermissionKey)
+        const permissions = [...new Set(body.permissions as string[])].filter(
+          (k) => validKeys.has(k as PermissionKey) && !k.startsWith('PLATFORM_')
         );
         // Anti-eskalasi
         assertCanGrant(needsManage, permissions);

@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireSuperAdmin } from '@/lib/auth-helpers';
+import { requirePlatformPermission } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { audit, getClientIp } from '@/lib/audit';
 import { hashPassword } from '@/lib/password';
@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 /** GET /api/super/offices — daftar seluruh kantor + statistik. */
 export async function GET(req: Request) {
   try {
-    await requireSuperAdmin(req);
+    await requirePlatformPermission('PLATFORM_TENANTS_VIEW', req);
     const { searchParams } = new URL(req.url);
     const q = searchParams.get('q')?.trim() ?? '';
     const where: any = {};
@@ -57,7 +57,7 @@ export async function GET(req: Request) {
  */
 export async function POST(req: Request) {
   try {
-    const ctx = await requireSuperAdmin(req);
+    const ctx = await requirePlatformPermission('PLATFORM_TENANTS_MANAGE', req);
     const body = await req.json();
     const name = String(body?.name || '').trim();
     const adminName = String(body?.adminName || '').trim();

@@ -1,4 +1,4 @@
-import { requireSuperAdmin } from '@/lib/auth-helpers';
+import { requirePlatformPermission } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { audit, getClientIp } from '@/lib/audit';
 import { setSystemSettings, invalidateSettingsCache } from '@/lib/system-settings';
@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 /** GET /api/super/master/settings — batas saldo minimum & kritis */
 export async function GET(req: Request) {
   try {
-    await requireSuperAdmin(req);
+    await requirePlatformPermission('PLATFORM_MASTER_VIEW', req);
     const limits = await getMasterLimits();
     const balance = await getMasterBalance();
     return apiOk({ ...limits, balance, status: masterStatusOf(balance, limits.minBalance, limits.criticalBalance) });
@@ -28,7 +28,7 @@ const schema = z.object({
 /** PUT /api/super/master/settings — ubah batas saldo minimum & kritis */
 export async function PUT(req: Request) {
   try {
-    const ctx = await requireSuperAdmin(req);
+    const ctx = await requirePlatformPermission('PLATFORM_MASTER_MANAGE', req);
     const body = await req.json().catch(() => ({}));
     const p = schema.safeParse(body);
     if (!p.success) return apiErr('Data tidak valid.', 422);

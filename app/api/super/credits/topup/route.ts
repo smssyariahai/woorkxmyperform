@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireSuperAdmin } from '@/lib/auth-helpers';
+import { requirePlatformPermission } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { audit, getClientIp } from '@/lib/audit';
 import { addCredit } from '@/lib/bot/credits';
@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 /** GET /api/super/credits/topup — daftar pengajuan top up (filter status) */
 export async function GET(req: Request) {
   try {
-    await requireSuperAdmin(req);
+    await requirePlatformPermission('PLATFORM_MASTER_VIEW', req);
     const url = new URL(req.url);
     const status = url.searchParams.get('status') || 'PENDING';
     const items = await prisma.topUpRequest.findMany({
@@ -38,7 +38,7 @@ const schema = z.object({
  */
 export async function POST(req: Request) {
   try {
-    const ctx = await requireSuperAdmin(req);
+    const ctx = await requirePlatformPermission('PLATFORM_MASTER_MANAGE', req);
     const body = await req.json().catch(() => ({}));
     const p = schema.safeParse(body);
     if (!p.success) return apiErr('Data tidak valid.', 422);

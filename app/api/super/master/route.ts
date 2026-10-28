@@ -1,4 +1,4 @@
-import { requireSuperAdmin } from '@/lib/auth-helpers';
+import { requirePlatformPermission } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { getMasterStats } from '@/lib/bot/master';
 
@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 /** GET /api/super/master — ringkasan dashboard Saldo Master (hanya Administrator Pusat) */
 export async function GET(req: Request) {
   try {
-    await requireSuperAdmin(req);
+    await requirePlatformPermission('PLATFORM_MASTER_VIEW', req);
     return apiOk(await getMasterStats());
   } catch (e: any) {
     if (e instanceof Response) return e;

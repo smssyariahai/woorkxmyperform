@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireSuperAdmin } from '@/lib/auth-helpers';
+import { requirePlatformPermission } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 /** GET /api/super/audit — audit log global seluruh kantor. */
 export async function GET(req: Request) {
   try {
-    await requireSuperAdmin(req);
+    await requirePlatformPermission('PLATFORM_AUDIT_VIEW', req);
     const { searchParams } = new URL(req.url);
     const q = searchParams.get('q')?.trim() ?? '';
     const organizationId = searchParams.get('organizationId') ?? '';

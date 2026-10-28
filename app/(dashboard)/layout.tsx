@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { getAuthContext, getUserPermissions } from '@/lib/auth-helpers';
+import { getAuthContext, getUserPermissions, getUserPlatformPermissions } from '@/lib/auth-helpers';
 import { getTrialStatus } from '@/lib/trial';
 import { prisma } from '@/lib/db';
 import { AppShell } from '@/components/layout/AppShell';
@@ -8,11 +8,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const ctx = await getAuthContext();
   if (!ctx) redirect('/login');
 
-  const [unread, permSet, trial, memberships] = await Promise.all([
+  const [unread, permSet, platformPermSet, trial, memberships] = await Promise.all([
     prisma.customer.count({
       where: { organizationId: ctx.organizationId, unreadCount: { gt: 0 } },
     }),
     getUserPermissions(ctx),
+    getUserPlatformPermissions(ctx),
     getTrialStatus(ctx.organizationId),
     prisma.membership.findMany({
       where: { userId: ctx.userId, status: 'ACTIVE' },
@@ -34,6 +35,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       role={ctx.role}
       isSuperAdmin={ctx.isSuperAdmin}
       permissions={[...permSet]}
+      platformPermissions={[...platformPermSet]}
       memberships={memberships
         .filter((m) => m.organization.isActive || ctx.isSuperAdmin)
         .map((m) => ({

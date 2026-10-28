@@ -35,6 +35,15 @@ export const PERMISSIONS = {
   // --- kantor (Administrator Pusat) ---
   OFFICES_VIEW: 'OFFICES_VIEW',
   OFFICES_MANAGE: 'OFFICES_MANAGE',
+  // --- platform (Admin WOORK, Fase 1 RBAC) ---
+  // Hanya dipakai lewat requirePlatformPermission; TIDAK masuk ROLE_PERMISSIONS
+  // agar tidak pernah tersinkron ke role tenant oleh sync-rbac.
+  PLATFORM_TENANTS_VIEW: 'PLATFORM_TENANTS_VIEW',
+  PLATFORM_TENANTS_MANAGE: 'PLATFORM_TENANTS_MANAGE',
+  PLATFORM_PACKAGES_MANAGE: 'PLATFORM_PACKAGES_MANAGE',
+  PLATFORM_MASTER_VIEW: 'PLATFORM_MASTER_VIEW',
+  PLATFORM_MASTER_MANAGE: 'PLATFORM_MASTER_MANAGE',
+  PLATFORM_AUDIT_VIEW: 'PLATFORM_AUDIT_VIEW',
 } as const;
 
 export type PermissionKey = keyof typeof PERMISSIONS;
@@ -71,6 +80,13 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { key: 'TEAM_MANAGE', module: 'Pengaturan', description: 'Mengelola tim (legacy)' },
   { key: 'OFFICES_VIEW', module: 'Kantor', description: 'Melihat daftar kantor (Pusat)' },
   { key: 'OFFICES_MANAGE', module: 'Kantor', description: 'Mengelola kantor (Pusat)' },
+  // --- platform (Admin WOORK) ---
+  { key: 'PLATFORM_TENANTS_VIEW', module: 'Platform', description: 'Melihat daftar & statistik tenant' },
+  { key: 'PLATFORM_TENANTS_MANAGE', module: 'Platform', description: 'Membuat / mengedit / menonaktifkan tenant' },
+  { key: 'PLATFORM_PACKAGES_MANAGE', module: 'Platform', description: 'Mengubah paket berlangganan tenant' },
+  { key: 'PLATFORM_MASTER_VIEW', module: 'Platform', description: 'Melihat saldo master & mutasi' },
+  { key: 'PLATFORM_MASTER_MANAGE', module: 'Platform', description: 'Top-up & penyesuaian saldo master' },
+  { key: 'PLATFORM_AUDIT_VIEW', module: 'Platform', description: 'Melihat audit log platform' },
 ];
 
 /** Role sistem bawaan per kantor (dibuat otomatis via seedOrgDefaults). */

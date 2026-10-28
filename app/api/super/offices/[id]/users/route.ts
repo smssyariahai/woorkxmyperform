@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireSuperAdmin } from '@/lib/auth-helpers';
+import { requirePlatformPermission } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 /** GET /api/super/offices/:id/users — daftar pengguna sebuah kantor. */
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   try {
-    await requireSuperAdmin(req);
+    await requirePlatformPermission('PLATFORM_TENANTS_VIEW', req);
     const org = await prisma.organization.findUnique({ where: { id: params.id } });
     if (!org) return apiErr('Kantor tidak ditemukan.', 404);
     const members = await prisma.membership.findMany({

@@ -225,6 +225,7 @@ model User {
   ownedLeads        Lead[]                @relation("LeadOwner")
   memberships       Membership[]
   authoredNotes     Note[]                @relation("NoteAuthor")
+  platformRoleAssignments PlatformRoleAssignment[]
   notifications     Notification[]
   resetTokens       PasswordResetToken[]
   createdTemplates  ReplyTemplate[]       @relation("TemplateAuthor")
@@ -245,6 +246,7 @@ model Role {
   memberships    Membership[]
   organization   Organization?    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   permissions    RolePermission[]
+  platformAssignments PlatformRoleAssignment[]
 
   @@unique([organizationId, name])
 }
@@ -284,6 +286,24 @@ model Membership {
   @@index([organizationId])
   @@index([userId])
   @@index([departmentId])
+}
+
+// Penugasan role platform (Admin WOORK, Fase 1 RBAC).
+// Berbeda dari Membership: tidak terikat satu tenant. Role yang ditugaskan
+// HARUS role platform (Role.organizationId null); penegakannya di API,
+// bukan di constraint database. Akses platform dicek lewat
+// requirePlatformPermission, terpisah dari permission tenant.
+model PlatformRoleAssignment {
+  id        String   @id @default(cuid())
+  userId    String
+  roleId    String
+  createdAt DateTime @default(now())
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
 }
 
 model Department {

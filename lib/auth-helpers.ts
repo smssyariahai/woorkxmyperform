@@ -129,6 +129,62 @@ export async function requireSuperAdmin(req?: Request): Promise<AuthContext> {
 }
 
 /**
+ * Kunci permission platform milik user (sumber: penugasan role platform).
+ * Terpisah dari permission tenant: role platform HARUS ber-organizationId null;
+ * penugasan yang menunjuk role tenant diabaikan.
+ */
+export async function getUserPlatformPermissions(ctx: AuthContext): Promise<Set<string>> {
+  if (ctx.isSuperAdmin) return new Set(['*']);
+  const assigns = await prisma.platformRoleAssignment.findMany({
+    where: { userId: ctx.userId },
+    include: { role: { include: { permissions: { include: { permission: true } } } } },
+  });
+  const keys = new Set<string>();
+  for (const a of assigns) {
+    if (a.role.organizationId !== null) continue;
+    for (const rp of a.role.permissions) keys.add(rp.permission.key);
+  }
+  return keys;
+}
+
+/**
+ * Pastikan user punya permission platform (Admin WOORK); 403 bila tidak.
+ * Administrator Pusat bypass penuh (tercatat). Berbeda dari requirePermission:
+ * guard ini TIDAK membaca role tenant — Admin WOORK tidak mendapat akses
+ * platform dari keanggotaan tenant apa pun, dan sebaliknya.
+ */
+export async function requirePlatformPermission(
+  permission: PermissionKey,
+  req?: Request
+): Promise<AuthContext> {
+  const ctx = await requireAuth();
+  if (ctx.isSuperAdmin) {
+    audit({
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      action: 'SUPERADMIN_ACCESS',
+      module: 'AUTH',
+      description: `Administrator Pusat mengakses platform ${permission}`,
+      ipAddress: req ? getClientIp(req) : undefined,
+    }).catch(() => {});
+    return ctx;
+  }
+  const keys = await getUserPlatformPermissions(ctx);
+  if (!keys.has(permission)) {
+    audit({
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      action: 'ACCESS_DENIED',
+      module: 'AUTH',
+      description: `Ditolak: membutuhkan permission platform ${permission}`,
+      ipAddress: req ? getClientIp(req) : undefined,
+    }).catch(() => {});
+    throw apiErr('Anda tidak memiliki akses platform untuk tindakan ini.', 403);
+  }
+  return ctx;
+}
+
+/**
  * Validasi anti-eskalasi: pemberi role tidak boleh memberikan permission
  * yang tidak dimilikinya sendiri.
  */

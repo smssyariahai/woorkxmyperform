@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireSuperAdmin } from '@/lib/auth-helpers';
+import { requirePlatformPermission } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 /** GET /api/super/stats — statistik global untuk dashboard Administrator Pusat. */
 export async function GET(req: Request) {
   try {
-    await requireSuperAdmin(req);
+    await requirePlatformPermission('PLATFORM_TENANTS_VIEW', req);
     const [offices, activeOffices, users, memberships, auditToday] = await Promise.all([
       prisma.organization.count(),
       prisma.organization.count({ where: { isActive: true } }),
