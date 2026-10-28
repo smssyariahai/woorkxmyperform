@@ -1,4 +1,4 @@
-import { requirePermission } from '@/lib/auth-helpers';
+import { requirePermission, requireModule } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { audit, getClientIp } from '@/lib/audit';
 import { reviewApproval } from '@/lib/agents/scheduler';
@@ -8,7 +8,8 @@ export const dynamic = 'force-dynamic';
 /** POST /api/approvals/:id/review — setujui / tolak pengajuan */
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   try {
-    const ctx = await requirePermission('CRM_EDIT');
+    const ctx = await requirePermission('APPROVALS_REVIEW');
+    await requireModule(ctx, 'kantor');
     const body = await req.json();
     const approve = body.approve === true;
     await reviewApproval(ctx.organizationId, params.id, ctx.userId, approve);

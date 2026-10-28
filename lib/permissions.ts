@@ -35,6 +35,10 @@ export const PERMISSIONS = {
   // --- kantor (Administrator Pusat) ---
   OFFICES_VIEW: 'OFFICES_VIEW',
   OFFICES_MANAGE: 'OFFICES_MANAGE',
+  // --- ekspor & persetujuan (Fase 2 RBAC) ---
+  CRM_EXPORT: 'CRM_EXPORT',
+  HR_EXPORT: 'HR_EXPORT',
+  APPROVALS_REVIEW: 'APPROVALS_REVIEW',
   // --- platform (Admin WOORK, Fase 1 RBAC) ---
   // Hanya dipakai lewat requirePlatformPermission; TIDAK masuk ROLE_PERMISSIONS
   // agar tidak pernah tersinkron ke role tenant oleh sync-rbac.
@@ -80,6 +84,10 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { key: 'TEAM_MANAGE', module: 'Pengaturan', description: 'Mengelola tim (legacy)' },
   { key: 'OFFICES_VIEW', module: 'Kantor', description: 'Melihat daftar kantor (Pusat)' },
   { key: 'OFFICES_MANAGE', module: 'Kantor', description: 'Mengelola kantor (Pusat)' },
+  // --- ekspor & persetujuan (Fase 2 RBAC) ---
+  { key: 'CRM_EXPORT', module: 'CRM', description: 'Mengekspor data CRM ke CSV' },
+  { key: 'HR_EXPORT', module: 'HR', description: 'Mengekspor data kandidat HR ke CSV' },
+  { key: 'APPROVALS_REVIEW', module: 'Persetujuan', description: 'Menyetujui / menolak pengajuan agent' },
   // --- platform (Admin WOORK) ---
   { key: 'PLATFORM_TENANTS_VIEW', module: 'Platform', description: 'Melihat daftar & statistik tenant' },
   { key: 'PLATFORM_TENANTS_MANAGE', module: 'Platform', description: 'Membuat / mengedit / menonaktifkan tenant' },
@@ -92,27 +100,27 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
 /** Role sistem bawaan per kantor (dibuat otomatis via seedOrgDefaults). */
 export const ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
   OWNER: [
-    'INBOX_VIEW', 'INBOX_REPLY', 'CRM_VIEW', 'CRM_EDIT',
+    'INBOX_VIEW', 'INBOX_REPLY', 'CRM_VIEW', 'CRM_EDIT', 'CRM_EXPORT',
     'BROADCAST_CREATE', 'BOT_MANAGE', 'TEAM_MANAGE', 'AUDIT_VIEW', 'SETTINGS_MANAGE',
-    'HR_VIEW', 'HR_MANAGE',
+    'HR_VIEW', 'HR_MANAGE', 'HR_EXPORT', 'APPROVALS_REVIEW',
     'USERS_VIEW', 'USERS_CREATE', 'USERS_UPDATE', 'USERS_DEACTIVATE', 'USERS_ASSIGN_ROLE',
     'ROLES_VIEW', 'ROLES_CREATE', 'ROLES_UPDATE', 'ROLES_DELETE', 'PERMISSIONS_MANAGE',
     'DEPARTMENTS_VIEW', 'DEPARTMENTS_MANAGE',
   ],
   ADMIN: [
-    'INBOX_VIEW', 'INBOX_REPLY', 'CRM_VIEW', 'CRM_EDIT',
+    'INBOX_VIEW', 'INBOX_REPLY', 'CRM_VIEW', 'CRM_EDIT', 'CRM_EXPORT',
     'BROADCAST_CREATE', 'BOT_MANAGE', 'TEAM_MANAGE', 'AUDIT_VIEW', 'SETTINGS_MANAGE',
-    'HR_VIEW', 'HR_MANAGE',
+    'HR_VIEW', 'HR_MANAGE', 'HR_EXPORT', 'APPROVALS_REVIEW',
     'USERS_VIEW', 'USERS_CREATE', 'USERS_UPDATE', 'USERS_DEACTIVATE', 'USERS_ASSIGN_ROLE',
     'ROLES_VIEW', 'ROLES_CREATE', 'ROLES_UPDATE', 'ROLES_DELETE', 'PERMISSIONS_MANAGE',
     'DEPARTMENTS_VIEW', 'DEPARTMENTS_MANAGE',
   ],
   SUPERVISOR: [
     'INBOX_VIEW', 'INBOX_REPLY', 'CRM_VIEW', 'CRM_EDIT',
-    'BROADCAST_CREATE', 'AUDIT_VIEW', 'HR_VIEW',
+    'BROADCAST_CREATE', 'AUDIT_VIEW', 'HR_VIEW', 'APPROVALS_REVIEW',
     'USERS_VIEW', 'DEPARTMENTS_VIEW',
   ],
-  AGENT: ['INBOX_VIEW', 'INBOX_REPLY', 'CRM_VIEW', 'CRM_EDIT'],
+  AGENT: ['INBOX_VIEW', 'INBOX_REPLY', 'CRM_VIEW', 'CRM_EDIT', 'APPROVALS_REVIEW'],
   VIEWER: ['INBOX_VIEW', 'CRM_VIEW', 'AUDIT_VIEW'],
 };
 

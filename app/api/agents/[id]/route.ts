@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requirePermission } from '@/lib/auth-helpers';
+import { requirePermission, requireModule } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { audit, getClientIp } from '@/lib/audit';
 import { ensureAgents } from '@/lib/agents/scheduler';
@@ -11,6 +11,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   try {
     const ctx = await requirePermission('INBOX_VIEW');
+    await requireModule(ctx, 'kantor');
     await ensureAgents(ctx.organizationId);
     const agent = await prisma.agent.findFirst({
       where: { id: params.id, organizationId: ctx.organizationId },
@@ -51,6 +52,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 export async function PUT(req: Request, { params }: { params: { id: string } }) {
   try {
     const ctx = await requirePermission('TEAM_MANAGE');
+    await requireModule(ctx, 'kantor');
     const body = await req.json();
     const agent = await prisma.agent.findFirst({
       where: { id: params.id, organizationId: ctx.organizationId },

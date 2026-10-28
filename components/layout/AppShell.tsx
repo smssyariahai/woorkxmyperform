@@ -23,6 +23,7 @@ export function AppShell({
   isSuperAdmin,
   permissions,
   platformPermissions,
+  orgModules,
   memberships,
   unread,
   trial,
@@ -36,6 +37,7 @@ export function AppShell({
   isSuperAdmin: boolean;
   permissions: string[];
   platformPermissions: string[];
+  orgModules: string[];
   memberships: Array<{ organizationId: string; organizationName: string; role: string; current: boolean }>;
   unread: number;
   trial?: TrialStatus | null;
@@ -68,6 +70,7 @@ export function AppShell({
           isSuperAdmin={isSuperAdmin}
           permissions={filterTrialMenus(permissions, trial)}
           platformPermissions={platformPermissions}
+          orgModules={orgModules}
           memberships={memberships}
           unread={unread}
           collapsed={collapsed}
@@ -88,6 +91,7 @@ export function AppShell({
               isSuperAdmin={isSuperAdmin}
               permissions={filterTrialMenus(permissions, trial)}
               platformPermissions={platformPermissions}
+              orgModules={orgModules}
               memberships={memberships}
               unread={unread}
               collapsed={false}

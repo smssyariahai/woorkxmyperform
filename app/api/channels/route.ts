@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requirePermission } from '@/lib/auth-helpers';
+import { requirePermission, requireModule } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { audit, getClientIp } from '@/lib/audit';
 
@@ -9,6 +9,7 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     const ctx = await requirePermission('SETTINGS_MANAGE');
+    await requireModule(ctx, 'channels');
     const channels = await prisma.channel.findMany({
       where: { organizationId: ctx.organizationId },
       include: { accounts: true },
@@ -40,6 +41,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const ctx = await requirePermission('SETTINGS_MANAGE');
+    await requireModule(ctx, 'channels');
     const body = await req.json();
     const { type, displayName, externalId } = body;
     if (!['WHATSAPP', 'INSTAGRAM', 'FACEBOOK', 'WEBSITE'].includes(type)) {

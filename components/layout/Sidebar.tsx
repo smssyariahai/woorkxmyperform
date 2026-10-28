@@ -40,17 +40,19 @@ interface NavItem {
   platformPerms?: string[];
   /** hanya Administrator Pusat (bukan Admin WOORK). */
   superOnly?: boolean;
+  /** kunci modul paket (Fase 2): disembunyikan bila kantor membatasi modul dan kunci ini nonaktif. */
+  moduleKey?: string;
 }
 
 const NAV: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/inbox', label: 'Inbox', icon: Inbox, badge: 'unread', perms: ['INBOX_VIEW'] },
-  { href: '/crm', label: 'CRM', icon: Users, perms: ['CRM_VIEW'] },
-  { href: '/hr', label: 'HR', icon: Briefcase, perms: ['HR_VIEW'] },
-  { href: '/bot', label: 'Bot', icon: Bot, perms: ['BOT_MANAGE'] },
-  { href: '/broadcast', label: 'Broadcast', icon: Megaphone, perms: ['BROADCAST_CREATE'] },
-  { href: '/kantor', label: 'Kantor Virtual', icon: Building2 },
-  { href: '/channels', label: 'Saluran', icon: Plug, perms: ['SETTINGS_MANAGE'] },
+  { href: '/inbox', label: 'Inbox', icon: Inbox, badge: 'unread', perms: ['INBOX_VIEW'], moduleKey: 'inbox' },
+  { href: '/crm', label: 'CRM', icon: Users, perms: ['CRM_VIEW'], moduleKey: 'crm' },
+  { href: '/hr', label: 'HR', icon: Briefcase, perms: ['HR_VIEW'], moduleKey: 'hr' },
+  { href: '/bot', label: 'Bot', icon: Bot, perms: ['BOT_MANAGE'], moduleKey: 'bot' },
+  { href: '/broadcast', label: 'Broadcast', icon: Megaphone, perms: ['BROADCAST_CREATE'], moduleKey: 'broadcast' },
+  { href: '/kantor', label: 'Kantor Virtual', icon: Building2, moduleKey: 'kantor' },
+  { href: '/channels', label: 'Saluran', icon: Plug, perms: ['SETTINGS_MANAGE'], moduleKey: 'channels' },
   { href: '/audit', label: 'Audit', icon: ShieldCheck, perms: ['AUDIT_VIEW'] },
 ];
 
@@ -95,6 +97,7 @@ export function Sidebar({
   isSuperAdmin,
   permissions,
   platformPermissions,
+  orgModules,
   memberships,
   unread,
   collapsed,
@@ -108,6 +111,7 @@ export function Sidebar({
   isSuperAdmin: boolean;
   permissions: string[];
   platformPermissions: string[];
+  orgModules: string[];
   memberships: MembershipInfo[];
   unread: number;
   collapsed: boolean;
@@ -127,9 +131,13 @@ export function Sidebar({
     return perms.some((p) => set.has(p));
   };
 
-  /** Visibilitas satu item menu: superOnly > platformPerms > perms tenant. */
+  /** Visibilitas satu item menu: superOnly > platformPerms > perms tenant + modul paket. */
   const canItem = (n: NavItem) => {
     if (n.superOnly) return isSuperAdmin;
+    // Modul paket: daftar kosong = semua aktif; super admin bypass.
+    if (n.moduleKey && !isSuperAdmin && orgModules.length > 0 && !orgModules.includes(n.moduleKey)) {
+      return false;
+    }
     if (n.platformPerms) {
       if (isSuperAdmin) return true;
       const set = new Set(platformPermissions);

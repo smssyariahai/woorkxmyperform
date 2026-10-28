@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requirePermission } from '@/lib/auth-helpers';
+import { requirePermission, requireModule } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { ensureAgents } from '@/lib/agents/scheduler';
 import { opStatusOf } from '@/lib/agents/display-status';
@@ -13,6 +13,7 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     const ctx = await requirePermission('INBOX_VIEW');
+    await requireModule(ctx, 'kantor');
     const orgId = ctx.organizationId;
     await ensureAgents(orgId);
 

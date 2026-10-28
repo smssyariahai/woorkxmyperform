@@ -2,6 +2,8 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { apiErr } from '@/lib/utils';
 import type { PermissionKey } from '@/lib/permissions';
+import { PERMISSION_CATALOG } from '@/lib/permissions';
+import { AVAILABLE_MODULES, MODULE_BY_CATALOG_MODULE, parseOrgModules, type ModuleKey } from '@/lib/modules';
 import { audit, getClientIp } from '@/lib/audit';
 import { getTrialStatus, isWritePermission } from '@/lib/trial';
 
@@ -65,9 +67,30 @@ export async function getUserPermissions(ctx: AuthContext): Promise<Set<string>>
 }
 
 /**
+ * Pastikan modul paket aktif untuk kantor pemanggil (Fase 2 RBAC).
+ * Administrator Pusat bypass. Daftar modul kosong / tidak diset = semua aktif
+ * (grandfathering: tenant lama tanpa pembatasan tidak pernah terkunci).
+ */
+export async function requireModule(ctx: AuthContext, moduleKey: ModuleKey): Promise<void> {
+  if (ctx.isSuperAdmin) return;
+  const org = await prisma.organization.findUnique({
+    where: { id: ctx.organizationId },
+    select: { modules: true },
+  });
+  const active = parseOrgModules(org?.modules);
+  if (active.length > 0 && !active.includes(moduleKey)) {
+    const label = AVAILABLE_MODULES.find((m) => m.key === moduleKey)?.label ?? moduleKey;
+    throw apiErr(`Modul ${label} tidak aktif untuk kantor ini.`, 403);
+  }
+}
+
+const MODULE_OF_PERMISSION = new Map(PERMISSION_CATALOG.map((p) => [p.key, p.module]));
+
+/**
  * Pastikan user punya permission; 403 bila tidak.
  * Administrator Pusat memiliki akses global eksplisit (dicatat di audit).
  * Deny by default: hanya permission di database yang berlaku.
+ * Fase 2: permission modul fitur juga dibatasi modul paket kantor.
  */
 export async function requirePermission(
   permission: PermissionKey,
@@ -98,6 +121,10 @@ export async function requirePermission(
     }).catch(() => {});
     throw apiErr('Anda tidak memiliki akses untuk tindakan ini.', 403);
   }
+  // Batasan modul paket: permission modul fitur ditolak bila modulnya nonaktif.
+  const catalogModule = MODULE_OF_PERMISSION.get(permission);
+  const moduleKey = catalogModule ? MODULE_BY_CATALOG_MODULE[catalogModule] : undefined;
+  if (moduleKey) await requireModule(ctx, moduleKey);
   // Batasan trial: tulis diblokir bila trial habis; Bot nonaktif selama trial.
   if (isWritePermission(permission)) {
     const trial = await getTrialStatus(ctx.organizationId);

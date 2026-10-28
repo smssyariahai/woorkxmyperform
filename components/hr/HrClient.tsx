@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Card } from '@/components/ui/primitives';
 import { Modal } from '@/components/ui/modal';
+import { toast } from 'sonner';
 import { friendlyFetchError } from '@/lib/fetch-error';
 import {
   Plus, Search, Pencil, Trash2, X, Briefcase, Users, UserCheck,
@@ -39,6 +40,22 @@ const EMP_STATUS: Record<string, { label: string; cls: string }> = {
 
 const rupiah = (n?: number | null) =>
   n == null ? '—' : 'Rp ' + Number(n).toLocaleString('id-ID');
+
+/** Unduh CSV lewat fetch agar 403 (tanpa HR_EXPORT) tampil sebagai toast, bukan halaman JSON. */
+async function downloadCandidateExport() {
+  try {
+    const r = await fetch('/api/hr/candidates/export');
+    if (!r.ok) {
+      const j = await r.json().catch(() => null);
+      throw new Error(j?.message || 'Gagal mengekspor.');
+    }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'kandidat.csv'; a.click();
+    URL.revokeObjectURL(url);
+  } catch (e: any) { toast.error(e.message || 'Gagal mengekspor.'); }
+}
 const tgl = (s?: string | null) =>
   s ? new Date(s).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 const today = () => new Date().toISOString().slice(0, 10);
@@ -396,6 +413,7 @@ function CandidateTab({ items, vacancies, q, setQ, onAdd, onOpen }: any) {
           <option value="">Semua tahap</option>
           {STAGES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
         </select>
+        <button onClick={downloadCandidateExport} className="btn-secondary"><FileDown className="h-4 w-4" /> Ekspor CSV</button>
         <button onClick={onAdd} className="btn-primary"><Plus className="h-4 w-4" /> Tambah kandidat</button>
       </div>
       <Card className="!p-0 overflow-hidden">

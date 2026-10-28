@@ -54,6 +54,10 @@ export function PlatformAdminClient() {
   const [results, setResults] = useState<SearchUser[]>([]);
   const [searching, setSearching] = useState(false);
   const [pickRole, setPickRole] = useState<Record<string, string>>({});
+  const [roleQuery, setRoleQuery] = useState('');
+  const [adminRoleFilter, setAdminRoleFilter] = useState('');
+  const [adminPage, setAdminPage] = useState(1);
+  const ADMIN_PAGE_SIZE = 10;
 
   const load = useCallback(async () => {
     const [rr, pp, aa] = await Promise.all([
@@ -172,6 +176,11 @@ export function PlatformAdminClient() {
   }
 
   const editor = creating || editing;
+  const visibleRoles = roles.filter((r) => r.name.toLowerCase().includes(roleQuery.trim().toLowerCase()));
+  const filteredAdmins = admins.filter((a) => !adminRoleFilter || a.roleId === adminRoleFilter);
+  const adminPages = Math.max(1, Math.ceil(filteredAdmins.length / ADMIN_PAGE_SIZE));
+  const safeAdminPage = Math.min(adminPage, adminPages);
+  const pagedAdmins = filteredAdmins.slice((safeAdminPage - 1) * ADMIN_PAGE_SIZE, safeAdminPage * ADMIN_PAGE_SIZE);
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-[1400px] mx-auto space-y-5">
@@ -241,8 +250,18 @@ export function PlatformAdminClient() {
           </div>
         </Card>
       ) : (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {roles.map((r) => (
+        <div>
+          <div className="mb-3 relative max-w-sm">
+            <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+            <Input
+              value={roleQuery}
+              onChange={(e) => setRoleQuery(e.target.value)}
+              placeholder="Cari role platform…"
+              className="!pl-9"
+            />
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {visibleRoles.map((r) => (
             <Card key={r.id} className="!p-5">
               <div className="flex items-start justify-between gap-2">
                 <div>
@@ -264,9 +283,12 @@ export function PlatformAdminClient() {
               </div>
             </Card>
           ))}
-          {roles.length === 0 && (
-            <p className="text-[13px] text-muted col-span-full">Belum ada role platform. Buat role pertama, lalu tugaskan ke pengguna.</p>
+          {visibleRoles.length === 0 && (
+            <p className="text-[13px] text-muted col-span-full">
+              {roles.length === 0 ? 'Belum ada role platform. Buat role pertama, lalu tugaskan ke pengguna.' : 'Tidak ada role yang cocok dengan pencarian.'}
+            </p>
           )}
+          </div>
         </div>
       )}
 
@@ -325,12 +347,31 @@ export function PlatformAdminClient() {
       </Card>
 
       <Card>
-        <CardTitle>Admin WOORK Aktif ({admins.length})</CardTitle>
-        {admins.length === 0 ? (
+        <CardTitle>Admin WOORK Aktif ({filteredAdmins.length})</CardTitle>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <select
+            value={adminRoleFilter}
+            onChange={(e) => { setAdminRoleFilter(e.target.value); setAdminPage(1); }}
+            className="rounded-btn border border-line bg-white dark:bg-slate-900 px-2 py-2 text-[13px]"
+          >
+            <option value="">Semua role</option>
+            {roles.map((r) => (
+              <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
+          </select>
+          {adminPages > 1 && (
+            <span className="inline-flex items-center gap-2 ml-auto text-[12.5px] text-muted">
+              <button disabled={safeAdminPage <= 1} onClick={() => setAdminPage(safeAdminPage - 1)} className="btn-ghost !py-1.5 text-[12.5px] disabled:opacity-50">‹ Sebelumnya</button>
+              <span>Halaman {safeAdminPage} dari {adminPages}</span>
+              <button disabled={safeAdminPage >= adminPages} onClick={() => setAdminPage(safeAdminPage + 1)} className="btn-ghost !py-1.5 text-[12.5px] disabled:opacity-50">Berikutnya ›</button>
+            </span>
+          )}
+        </div>
+        {filteredAdmins.length === 0 ? (
           <p className="text-[13px] text-muted mt-2">Belum ada penugasan Admin WOORK.</p>
         ) : (
           <div className="mt-3 space-y-2">
-            {admins.map((a) => (
+            {pagedAdmins.map((a) => (
               <div key={`${a.userId}-${a.roleId}`} className="flex flex-wrap items-center gap-3 rounded-btn border border-line p-3">
                 <div className="flex-1 min-w-[200px]">
                   <p className="text-[13.5px] font-semibold text-ink">{a.userName}</p>

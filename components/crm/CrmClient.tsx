@@ -13,7 +13,7 @@ import { EmptyState, ErrorState, Skeleton, NoResults } from '@/components/ui/sta
 import { Modal, ConfirmDialog } from '@/components/ui/modal';
 import { customerSchema } from '@/lib/validation';
 import { maskPhone, timeAgo, cn } from '@/lib/utils';
-import { Plus, Pencil, Trash2, KanbanSquare, CalendarClock } from 'lucide-react';
+import { Plus, Pencil, Trash2, KanbanSquare, CalendarClock, FileDown } from 'lucide-react';
 import { z } from 'zod';
 
 type CustomerForm = z.infer<typeof customerSchema>;
@@ -33,6 +33,22 @@ interface Customer {
 }
 
 const STAGES = ['Baru', 'Dihubungi', 'Terkualifikasi', 'Proposal', 'Negosiasi', 'Pelanggan'];
+
+/** Unduh CSV lewat fetch agar 403 (tanpa CRM_EXPORT) tampil sebagai toast, bukan halaman JSON. */
+async function downloadExport() {
+  try {
+    const r = await fetch('/api/customers/export');
+    if (!r.ok) {
+      const j = await r.json().catch(() => null);
+      throw new Error(j?.message || 'Gagal mengekspor.');
+    }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'pelanggan.csv'; a.click();
+    URL.revokeObjectURL(url);
+  } catch (e: any) { toast.error(e.message || 'Gagal mengekspor.'); }
+}
 
 export function CrmClient() {
   const [items, setItems] = useState<Customer[]>([]);
@@ -149,6 +165,9 @@ export function CrmClient() {
           <Link href="/crm/leads" className="btn-secondary">
             <KanbanSquare className="h-4 w-4" /> Kanban Lead
           </Link>
+          <button onClick={downloadExport} className="btn-secondary">
+            <FileDown className="h-4 w-4" /> Ekspor CSV
+          </button>
           <Button onClick={openCreate}>
             <Plus className="h-4 w-4" /> Tambah Pelanggan
           </Button>

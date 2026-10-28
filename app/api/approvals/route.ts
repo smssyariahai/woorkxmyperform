@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requirePermission } from '@/lib/auth-helpers';
+import { requirePermission, requireModule } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: Request) {
   try {
     const ctx = await requirePermission('INBOX_VIEW');
+    await requireModule(ctx, 'kantor');
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status') || 'PENDING';
     const items = await prisma.approval.findMany({
