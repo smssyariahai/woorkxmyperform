@@ -23,7 +23,7 @@ export const DEFAULT_NINEROUTER: NineRouterConfig = {
   apiKey: '',
   model: 'muse-spark',
   systemPrompt:
-    'Kamu adalah asisten customer service yang ramah dan membantu. Jawab dalam Bahasa Indonesia yang sopan dan ringkas (maksimal 3 kalimat kecuali diminta lebih).',
+    'Kamu adalah asisten customer service yang ramah dan membantu. Jawab dalam Bahasa Indonesia yang sopan dan ringkas (maksimal 3 kalimat kecuali diminta lebih). Bila ditanya soal dokumen atau tanda tangan elektronik (E-Sign), arahkan pengguna memeriksa status dokumennya di halaman E-Sign dan jangan pernah mengklaim dokumen sudah ditandatangani tanpa bukti dari sistem.',
   maxTokens: 500,
   timeoutMs: 30000,
   fallbackMessage: 'Mohon maaf, asisten AI sedang tidak tersedia. Tim kami akan segera membantu Anda.',

@@ -167,3 +167,55 @@ export const hrHireSchema = z.object({
   salary: z.coerce.number().min(0).optional().nullable(),
   probationMonths: z.coerce.number().int().min(0).max(12).default(3),
 });
+
+export const ESIGN_WORKFLOW_TYPES = ['SEQUENTIAL', 'PARALLEL'] as const;
+export const ESIGN_STATUSES = [
+  'DRAFT', 'PENDING_APPROVAL', 'PENDING_SIGNATURE', 'PARTIALLY_SIGNED',
+  'SIGNED', 'COMPLETED', 'REJECTED', 'CANCELLED', 'EXPIRED',
+] as const;
+export const ESIGN_APPROVAL_STATUSES = ['NOT_REQUIRED', 'PENDING', 'APPROVED', 'REJECTED'] as const;
+
+export const esignDocumentSchema = z.object({
+  documentNumber: z.string().min(1, 'Nomor dokumen wajib diisi').max(60),
+  title: z.string().min(3, 'Judul dokumen minimal 3 karakter').max(200),
+  category: z.string().min(1, 'Kategori wajib diisi').max(50),
+  description: z.string().max(2000).optional().nullable(),
+  workflowType: z.enum(ESIGN_WORKFLOW_TYPES).default('SEQUENTIAL'),
+  approvalStatus: z.enum(ESIGN_APPROVAL_STATUSES).default('NOT_REQUIRED'),
+  approverId: z.string().min(1).optional().nullable(),
+  expiresAt: z.string().optional().nullable(),
+  // Tampilan elemen tanda tangan di PDF final (default semua tampil).
+  showSignerName: z.boolean().optional(),
+  showSignerPosition: z.boolean().optional(),
+  showSignedDate: z.boolean().optional(),
+  showDocRef: z.boolean().optional(),
+});
+
+export const esignSignerSchema = z.object({
+  userId: z.string().min(1, 'Penandatangan wajib dipilih'),
+  signingOrder: z.coerce.number().int().min(1).max(100),
+  placementPage: z.coerce.number().int().min(1).optional().nullable(),
+  placementX: z.coerce.number().min(0).max(1).optional().nullable(),
+  placementY: z.coerce.number().min(0).max(1).optional().nullable(),
+  placementWidth: z.coerce.number().min(0).max(1).optional().nullable(),
+  placementHeight: z.coerce.number().min(0).max(1).optional().nullable(),
+});
+
+export const esignSignSchema = z.object({
+  pin: z.string().regex(/^\d{4,12}$/, 'PIN harus 4–12 digit angka'),
+  confirm: z.literal(true, {
+    errorMap: () => ({ message: 'Konfirmasi tanda tangan wajib dicentang' }),
+  }),
+});
+
+export const esignPinSchema = z.object({
+  pin: z.string().regex(/^\d{4,12}$/, 'PIN harus 4–12 digit angka'),
+  currentPin: z.string().regex(/^\d{4,12}$/, 'PIN saat ini tidak valid').optional().nullable(),
+});
+
+export const esignTemplateSchema = z.object({
+  name: z.string().min(2, 'Nama template minimal 2 karakter').max(120),
+  category: z.string().min(1).max(50).default('Umum'),
+  generator: z.string().max(60).optional().nullable(),
+  placeholders: z.string().max(5000).optional().nullable(),
+});

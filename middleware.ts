@@ -20,6 +20,7 @@ const PUBLIC_PATHS = [
   '/features',
   '/karir',
   '/o',
+  '/esign/sign', // tautan tanda tangan: dicek kedaluwarsanya sebelum login
 ];
 
 const innerAuth = auth((req) => {

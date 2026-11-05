@@ -25,6 +25,7 @@ import {
   Check,
   Settings2,
   Wallet,
+  FileSignature,
 } from 'lucide-react';
 import { useState } from 'react';
 import { signOut, useSession } from 'next-auth/react';
@@ -49,6 +50,7 @@ const NAV: NavItem[] = [
   { href: '/inbox', label: 'Inbox', icon: Inbox, badge: 'unread', perms: ['INBOX_VIEW'], moduleKey: 'inbox' },
   { href: '/crm', label: 'CRM', icon: Users, perms: ['CRM_VIEW'], moduleKey: 'crm' },
   { href: '/hr', label: 'HR', icon: Briefcase, perms: ['HR_VIEW'], moduleKey: 'hr' },
+  { href: '/esign', label: 'E-Sign', icon: FileSignature, perms: ['ESIGN_VIEW'], moduleKey: 'esign' },
   { href: '/bot', label: 'Bot', icon: Bot, perms: ['BOT_MANAGE'], moduleKey: 'bot' },
   { href: '/broadcast', label: 'Broadcast', icon: Megaphone, perms: ['BROADCAST_CREATE'], moduleKey: 'broadcast' },
   { href: '/kantor', label: 'Kantor Virtual', icon: Building2, moduleKey: 'kantor' },

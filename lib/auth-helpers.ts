@@ -17,15 +17,31 @@ export interface AuthContext {
   isSuperAdmin: boolean;
 }
 
+export interface AuthOptions {
+  /**
+   * Organisasi otorisasi. Bila diisi, keanggotaan + permission dicek di
+   * organisasi tersebut, BUKAN di organisasi aktif sesi. Dipakai endpoint
+   * berbasis token (mis. tanda tangan E-Sign): dokumen bisa milik kantor
+   * lain dari organisasi aktif user, selama user anggota AKTIF di kantor
+   * pemilik dokumen. Tanpa ini, perilaku lama dipertahankan.
+   */
+  organizationId?: string;
+}
+
 /**
  * Ambil sesi aktif; kembalikan 401 bila belum login.
  * Memverifikasi ke database setiap panggilan: user nonaktif / membership
  * dicabut / kantor dinonaktifkan langsung kehilangan akses (deny by default).
+ * Dengan opts.organizationId, keanggotaan diverifikasi di organisasi itu.
  */
-export async function requireAuth(): Promise<AuthContext> {
+export async function requireAuth(opts?: AuthOptions): Promise<AuthContext> {
   const session = await auth();
   const u = session?.user as any;
-  if (!u?.id || !u?.organizationId) {
+  if (!u?.id) {
+    throw apiErr('Belum login. Silakan masuk kembali.', 401);
+  }
+  const targetOrgId = opts?.organizationId ?? (u.organizationId as string);
+  if (!targetOrgId) {
     throw apiErr('Belum login. Silakan masuk kembali.', 401);
   }
   const dbUser = await prisma.user.findUnique({
@@ -36,10 +52,19 @@ export async function requireAuth(): Promise<AuthContext> {
     throw apiErr('Akun Anda dinonaktifkan. Hubungi administrator.', 401);
   }
   const membership = await prisma.membership.findFirst({
-    where: { userId: u.id as string, organizationId: u.organizationId as string },
-    include: { organization: { select: { isActive: true, name: true } } },
+    where: { userId: u.id as string, organizationId: targetOrgId },
+    include: {
+      organization: { select: { isActive: true, name: true } },
+      role: { select: { name: true } },
+    },
   });
   if (!membership || membership.status !== 'ACTIVE') {
+    if (opts?.organizationId) {
+      throw apiErr(
+        'Anda bukan anggota aktif kantor pemilik dokumen ini, jadi Anda tidak dapat memproses dokumen ini.',
+        403
+      );
+    }
     throw apiErr('Akses Anda ke kantor ini telah dicabut.', 403);
   }
   if (!membership.organization.isActive && !dbUser.isSuperAdmin) {
@@ -49,9 +74,11 @@ export async function requireAuth(): Promise<AuthContext> {
     userId: u.id,
     email: u.email,
     name: u.name,
-    organizationId: u.organizationId,
+    organizationId: targetOrgId,
     organizationName: membership.organization.name,
-    role: u.role,
+    // Role sesi berlaku untuk organisasi aktif sesi; bila otorisasi
+    // dialihkan ke organisasi dokumen, pakai role di organisasi itu.
+    role: opts?.organizationId ? (membership.role?.name ?? u.role) : u.role,
     isSuperAdmin: dbUser.isSuperAdmin,
   };
 }
@@ -91,12 +118,15 @@ const MODULE_OF_PERMISSION = new Map(PERMISSION_CATALOG.map((p) => [p.key, p.mod
  * Administrator Pusat memiliki akses global eksplisit (dicatat di audit).
  * Deny by default: hanya permission di database yang berlaku.
  * Fase 2: permission modul fitur juga dibatasi modul paket kantor.
+ * opts.organizationId mengalihkan otorisasi ke organisasi tersebut
+ * (modul gate + trial ikut memakai organisasi itu) — lihat AuthOptions.
  */
 export async function requirePermission(
   permission: PermissionKey,
-  req?: Request
+  req?: Request,
+  opts?: AuthOptions
 ): Promise<AuthContext> {
-  const ctx = await requireAuth();
+  const ctx = await requireAuth(opts);
   if (ctx.isSuperAdmin) {
     // Akses global eksplisit & tercatat
     audit({

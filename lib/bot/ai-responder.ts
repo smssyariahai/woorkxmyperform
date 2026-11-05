@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db';
 import { getNineRouterConfig, chatCompletion } from './ninerouter';
 import { getOrCreateBotConfig, reserveCredit, finalizeCharge, refundCredit, markFailed } from './credits';
+import { getEsignQaReply } from '@/lib/esign/qa';
 
 /**
  * Bot AI — dipanggil setelah BotFlow tidak menangani pesan.
@@ -28,6 +29,28 @@ export type AiResult =
   | { handled: true; reply: string }
   | { handled: false; reason: string };
 
+/** Simpan balasan bot ke riwayat percakapan (best-effort). */
+async function saveBotMessage(
+  conversationId: string,
+  text: string,
+  metadata: Record<string, unknown>
+): Promise<void> {
+  try {
+    await prisma.conversationMessage.create({
+      data: {
+        conversationId,
+        senderType: 'WOO',
+        body: text,
+        metadata: JSON.stringify(metadata),
+      },
+    });
+    await prisma.conversation.update({
+      where: { id: conversationId },
+      data: { lastMessageAt: new Date() },
+    });
+  } catch {}
+}
+
 export async function maybeAiReply(
   orgId: string,
   msg: AiIncoming,
@@ -54,6 +77,26 @@ export async function maybeAiReply(
 
   // 3. Kredensial tersedia?
   if (!cfg.baseUrl) return { handled: false, reason: 'no-config' };
+
+  // 3b. Q&A E-Sign (deterministik, tanpa LLM, tanpa potong kredit).
+  // Cabang ini hanya aktif bila gerbang bot di atas sudah lolos (bot ON).
+  // Jawaban selalu faktual dari DB — AI tidak pernah mengklaim status
+  // tanpa cek DB, tidak menandatangani atas nama user. Bila bukan intent
+  // E-Sign, getEsignQaReply mengembalikan null dan alur lanjut ke AI
+  // berbayar seperti biasa.
+  const esignReply = await getEsignQaReply(orgId, msg).catch(() => null);
+  if (esignReply) {
+    const send = deps?.sendText ?? (await import('@/lib/wa/manager')).sendText;
+    const sent = await send(orgId, { phone: msg.phone, waLid: msg.waLid }, esignReply);
+    if (!sent.ok) return { handled: false, reason: 'esign-send-failed' };
+    await saveBotMessage(msg.conversationId, esignReply, {
+      sentVia: 'whatsapp',
+      aiBot: true,
+      esignQA: true,
+      model: cfg.model,
+    });
+    return { handled: true, reply: esignReply };
+  }
 
   const price = cfg.pricePerReply;
 
@@ -105,20 +148,11 @@ export async function maybeAiReply(
   await finalizeCharge(usageId).catch(() => {});
 
   // 13. Simpan pesan bot ke DB (riwayat percakapan)
-  try {
-    const saved = await prisma.conversationMessage.create({
-      data: {
-        conversationId: msg.conversationId,
-        senderType: 'WOO',
-        body: ai.text,
-        metadata: JSON.stringify({ sentVia: 'whatsapp', aiBot: true, model: cfg.model }),
-      },
-    });
-    await prisma.conversation.update({
-      where: { id: msg.conversationId },
-      data: { lastMessageAt: new Date() },
-    });
-  } catch {}
+  await saveBotMessage(msg.conversationId, ai.text, {
+    sentVia: 'whatsapp',
+    aiBot: true,
+    model: cfg.model,
+  });
 
   return { handled: true, reply: ai.text };
 }

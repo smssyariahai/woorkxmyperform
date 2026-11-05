@@ -39,6 +39,12 @@ export const PERMISSIONS = {
   CRM_EXPORT: 'CRM_EXPORT',
   HR_EXPORT: 'HR_EXPORT',
   APPROVALS_REVIEW: 'APPROVALS_REVIEW',
+  // --- E-Sign ---
+  ESIGN_VIEW: 'ESIGN_VIEW',
+  ESIGN_CREATE: 'ESIGN_CREATE',
+  ESIGN_MANAGE: 'ESIGN_MANAGE',
+  ESIGN_SIGN: 'ESIGN_SIGN',
+  ESIGN_APPROVE: 'ESIGN_APPROVE',
   // --- platform (Admin WOORK, Fase 1 RBAC) ---
   // Hanya dipakai lewat requirePlatformPermission; TIDAK masuk ROLE_PERMISSIONS
   // agar tidak pernah tersinkron ke role tenant oleh sync-rbac.
@@ -88,6 +94,12 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { key: 'CRM_EXPORT', module: 'CRM', description: 'Mengekspor data CRM ke CSV' },
   { key: 'HR_EXPORT', module: 'HR', description: 'Mengekspor data kandidat HR ke CSV' },
   { key: 'APPROVALS_REVIEW', module: 'Persetujuan', description: 'Menyetujui / menolak pengajuan agent' },
+  // --- E-Sign ---
+  { key: 'ESIGN_VIEW', module: 'E-Sign', description: 'Melihat dashboard & dokumen E-Sign' },
+  { key: 'ESIGN_CREATE', module: 'E-Sign', description: 'Membuat & mengunggah dokumen E-Sign' },
+  { key: 'ESIGN_MANAGE', module: 'E-Sign', description: 'Mengirim, membatalkan & mengelola template E-Sign' },
+  { key: 'ESIGN_SIGN', module: 'E-Sign', description: 'Menandatangani dokumen yang ditunjuk ke dirinya' },
+  { key: 'ESIGN_APPROVE', module: 'E-Sign', description: 'Menyetujui dokumen sebelum ditandatangani' },
   // --- platform (Admin WOORK) ---
   { key: 'PLATFORM_TENANTS_VIEW', module: 'Platform', description: 'Melihat daftar & statistik tenant' },
   { key: 'PLATFORM_TENANTS_MANAGE', module: 'Platform', description: 'Membuat / mengedit / menonaktifkan tenant' },
@@ -103,6 +115,7 @@ export const ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     'INBOX_VIEW', 'INBOX_REPLY', 'CRM_VIEW', 'CRM_EDIT', 'CRM_EXPORT',
     'BROADCAST_CREATE', 'BOT_MANAGE', 'TEAM_MANAGE', 'AUDIT_VIEW', 'SETTINGS_MANAGE',
     'HR_VIEW', 'HR_MANAGE', 'HR_EXPORT', 'APPROVALS_REVIEW',
+    'ESIGN_VIEW', 'ESIGN_CREATE', 'ESIGN_MANAGE', 'ESIGN_SIGN', 'ESIGN_APPROVE',
     'USERS_VIEW', 'USERS_CREATE', 'USERS_UPDATE', 'USERS_DEACTIVATE', 'USERS_ASSIGN_ROLE',
     'ROLES_VIEW', 'ROLES_CREATE', 'ROLES_UPDATE', 'ROLES_DELETE', 'PERMISSIONS_MANAGE',
     'DEPARTMENTS_VIEW', 'DEPARTMENTS_MANAGE',
@@ -111,6 +124,7 @@ export const ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     'INBOX_VIEW', 'INBOX_REPLY', 'CRM_VIEW', 'CRM_EDIT', 'CRM_EXPORT',
     'BROADCAST_CREATE', 'BOT_MANAGE', 'TEAM_MANAGE', 'AUDIT_VIEW', 'SETTINGS_MANAGE',
     'HR_VIEW', 'HR_MANAGE', 'HR_EXPORT', 'APPROVALS_REVIEW',
+    'ESIGN_VIEW', 'ESIGN_CREATE', 'ESIGN_MANAGE', 'ESIGN_SIGN', 'ESIGN_APPROVE',
     'USERS_VIEW', 'USERS_CREATE', 'USERS_UPDATE', 'USERS_DEACTIVATE', 'USERS_ASSIGN_ROLE',
     'ROLES_VIEW', 'ROLES_CREATE', 'ROLES_UPDATE', 'ROLES_DELETE', 'PERMISSIONS_MANAGE',
     'DEPARTMENTS_VIEW', 'DEPARTMENTS_MANAGE',
@@ -118,10 +132,11 @@ export const ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
   SUPERVISOR: [
     'INBOX_VIEW', 'INBOX_REPLY', 'CRM_VIEW', 'CRM_EDIT',
     'BROADCAST_CREATE', 'AUDIT_VIEW', 'HR_VIEW', 'APPROVALS_REVIEW',
+    'ESIGN_VIEW', 'ESIGN_SIGN', 'ESIGN_APPROVE',
     'USERS_VIEW', 'DEPARTMENTS_VIEW',
   ],
-  AGENT: ['INBOX_VIEW', 'INBOX_REPLY', 'CRM_VIEW', 'CRM_EDIT', 'APPROVALS_REVIEW'],
-  VIEWER: ['INBOX_VIEW', 'CRM_VIEW', 'AUDIT_VIEW'],
+  AGENT: ['INBOX_VIEW', 'INBOX_REPLY', 'CRM_VIEW', 'CRM_EDIT', 'APPROVALS_REVIEW', 'ESIGN_VIEW', 'ESIGN_SIGN'],
+  VIEWER: ['INBOX_VIEW', 'CRM_VIEW', 'AUDIT_VIEW', 'ESIGN_VIEW'],
 };
 
 /**
