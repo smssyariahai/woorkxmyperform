@@ -12,6 +12,9 @@ import { esignSignLink } from './links';
  * - Jangan pernah mengklaim dokumen sudah ditandatangani tanpa cek DB.
  * - Jangan menandatangani atas nama user, jangan memakai tanda tangan
  *   tersimpan, jangan mengonfirmasi tanda tangan atas nama user.
+ *   Larangan ini berlaku untuk cabang Q&A ini. Penandatanganan lewat
+ *   WhatsApp HANYA lewat lib/esign/wa-sign.ts — intent eksplisit
+ *   ("saya ttd") + PIN user, bukan dari cabang ini.
  * - Semua status di bawah ini dibaca langsung dari database.
  *
  * Perlindungan percakapan pelanggan: kata 'dokumen' saja (tanpa kata
@@ -51,7 +54,9 @@ function detectIntent(text: string): Intent {
   return null;
 }
 
-async function findUserByPhone(
+/** Cari User (staf) dari nomor WhatsApp pengirim. Diekspor untuk dipakai
+ *  alur tanda tangan via WA (lib/esign/wa-sign.ts) — jangan duplikasi. */
+export async function findUserByPhone(
   orgId: string,
   phone: string | null
 ): Promise<{ id: string; name: string; phone: string | null } | null> {

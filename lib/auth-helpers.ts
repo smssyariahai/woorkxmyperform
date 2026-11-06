@@ -114,19 +114,16 @@ export async function requireModule(ctx: AuthContext, moduleKey: ModuleKey): Pro
 const MODULE_OF_PERMISSION = new Map(PERMISSION_CATALOG.map((p) => [p.key, p.module]));
 
 /**
- * Pastikan user punya permission; 403 bila tidak.
- * Administrator Pusat memiliki akses global eksplisit (dicatat di audit).
- * Deny by default: hanya permission di database yang berlaku.
- * Fase 2: permission modul fitur juga dibatasi modul paket kantor.
- * opts.organizationId mengalihkan otorisasi ke organisasi tersebut
- * (modul gate + trial ikut memakai organisasi itu) — lihat AuthOptions.
+ * Inti pemeriksaan permission untuk sebuah AuthContext yang sudah
+ * terverifikasi (keanggotaan + status user sudah dicek pemanggil).
+ * Dipakai requirePermission (sesi) dan requirePermissionForUser (tanpa
+ * sesi, mis. bot WhatsApp) agar aturannya identik.
  */
-export async function requirePermission(
+async function assertPermission(
+  ctx: AuthContext,
   permission: PermissionKey,
-  req?: Request,
-  opts?: AuthOptions
-): Promise<AuthContext> {
-  const ctx = await requireAuth(opts);
+  req?: Request
+): Promise<void> {
   if (ctx.isSuperAdmin) {
     // Akses global eksplisit & tercatat
     audit({
@@ -137,7 +134,7 @@ export async function requirePermission(
       description: `Administrator Pusat mengakses ${permission}`,
       ipAddress: req ? getClientIp(req) : undefined,
     }).catch(() => {});
-    return ctx;
+    return;
   }
   const keys = await getUserPermissions(ctx);
   if (!keys.has(permission)) {
@@ -165,6 +162,73 @@ export async function requirePermission(
       throw apiErr('Fitur Bot tidak tersedia pada paket Trial. Upgrade untuk mengaktifkan.', 403);
     }
   }
+}
+
+/**
+ * Pastikan user punya permission; 403 bila tidak.
+ * Administrator Pusat memiliki akses global eksplisit (dicatat di audit).
+ * Deny by default: hanya permission di database yang berlaku.
+ * Fase 2: permission modul fitur juga dibatasi modul paket kantor.
+ * opts.organizationId mengalihkan otorisasi ke organisasi tersebut
+ * (modul gate + trial ikut memakai organisasi itu) — lihat AuthOptions.
+ */
+export async function requirePermission(
+  permission: PermissionKey,
+  req?: Request,
+  opts?: AuthOptions
+): Promise<AuthContext> {
+  const ctx = await requireAuth(opts);
+  await assertPermission(ctx, permission, req);
+  return ctx;
+}
+
+/**
+ * Otorisasi TANPA sesi login (dipakai bot WhatsApp E-Sign).
+ * Memverifikasi hal yang sama seperti requireAuth + requirePermission,
+ * tapi identitas user berasal dari nomor WhatsApp yang sudah dicocokkan
+ * ke User (bukan dari cookie sesi): user ACTIVE + membership ACTIVE di
+ * organisasi yang dimaksud + role punya permission + module gate + trial.
+ * Pesan error disamakan dengan jalur sesi. Dipakai SEBELUM executeSign.
+ */
+export async function requirePermissionForUser(
+  userId: string,
+  permission: PermissionKey,
+  organizationId: string,
+  req?: Request
+): Promise<AuthContext> {
+  const dbUser = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { status: true, isSuperAdmin: true, email: true, name: true },
+  });
+  if (!dbUser || dbUser.status !== 'ACTIVE') {
+    throw apiErr('Akun Anda dinonaktifkan. Hubungi administrator.', 401);
+  }
+  const membership = await prisma.membership.findFirst({
+    where: { userId, organizationId },
+    include: {
+      organization: { select: { isActive: true, name: true } },
+      role: { select: { name: true } },
+    },
+  });
+  if (!membership || membership.status !== 'ACTIVE') {
+    throw apiErr(
+      'Anda bukan anggota aktif kantor pemilik dokumen ini, jadi Anda tidak dapat memproses dokumen ini.',
+      403
+    );
+  }
+  if (!membership.organization.isActive && !dbUser.isSuperAdmin) {
+    throw apiErr('Kantor ini sedang dinonaktifkan.', 403);
+  }
+  const ctx: AuthContext = {
+    userId,
+    email: dbUser.email,
+    name: dbUser.name,
+    organizationId,
+    organizationName: membership.organization.name,
+    role: membership.role?.name ?? '',
+    isSuperAdmin: dbUser.isSuperAdmin,
+  };
+  await assertPermission(ctx, permission, req);
   return ctx;
 }
 

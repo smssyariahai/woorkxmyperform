@@ -13,45 +13,9 @@ const jam = (s?: string | null) =>
     ? new Date(s).toLocaleString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     : '—';
 
-const ACTION_LABELS: Record<string, string> = {
-  CREATE_ESIGN_DOCUMENT: 'Dokumen dibuat',
-  UPDATE_ESIGN_DOCUMENT: 'Dokumen diperbarui',
-  DELETE_ESIGN_DOCUMENT: 'Dokumen dihapus',
-  UPLOAD_ESIGN_DOCUMENT: 'PDF diunggah',
-  ADD_ESIGN_SIGNER: 'Penandatangan ditambahkan',
-  UPDATE_ESIGN_SIGNER: 'Penandatangan diperbarui',
-  REMOVE_ESIGN_SIGNER: 'Penandatangan dihapus',
-  SEND_ESIGN_DOCUMENT: 'Dokumen dikirim',
-  APPROVE_ESIGN_DOCUMENT: 'Persetujuan diberikan',
-  REJECT_ESIGN_APPROVAL: 'Persetujuan ditolak',
-  SIGN_ESIGN_DOCUMENT: 'Dokumen ditandatangani',
-  REJECT_ESIGN_DOCUMENT: 'Dokumen ditolak',
-  CANCEL_ESIGN_DOCUMENT: 'Dokumen dibatalkan',
-  FINALIZE_ESIGN_DOCUMENT: 'PDF final dibuat',
-};
+import { ESIGN_ACTION_LABELS, auditSummary } from './audit-label';
 
-const ACTION_OPTIONS = Object.entries(ACTION_LABELS).map(([value, label]) => ({ value, label }));
-
-/** Ringkasan singkat dari metadata JSON audit log. */
-function metaSummary(raw?: string | null): string {
-  if (!raw || raw === '{}') return '';
-  let m: any = {};
-  try {
-    m = JSON.parse(raw);
-  } catch {
-    return raw;
-  }
-  const parts: string[] = [];
-  if (m.signerName) parts.push(m.signerName);
-  if (m.reason) parts.push(`alasan: ${m.reason}`);
-  if (m.documentStatus) parts.push(`status: ${m.documentStatus}`);
-  if (typeof m.signerCount === 'number') parts.push(`${m.signerCount} penandatangan`);
-  if (m.finalHash) parts.push(`hash ${String(m.finalHash).slice(0, 12)}…`);
-  if (m.originalHash) parts.push(`hash ${String(m.originalHash).slice(0, 12)}…`);
-  if (m.fileName) parts.push(m.fileName);
-  if (m.changedFields?.length) parts.push(`diubah: ${m.changedFields.join(', ')}`);
-  return parts.join(' · ');
-}
+const ACTION_OPTIONS = Object.entries(ESIGN_ACTION_LABELS).map(([value, label]) => ({ value, label }));
 
 async function api(path: string) {
   const r = await fetch(path);
@@ -156,7 +120,7 @@ export function EsignActivity() {
                 <li key={a.id} className="border-b border-line pb-3 text-[13px] last:border-0">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <span>
-                      <b>{ACTION_LABELS[a.action] ?? a.action}</b>
+                      <b>{ESIGN_ACTION_LABELS[a.action] ?? a.action}</b>
                       {a.document ? (
                         <>
                           {' — '}
@@ -170,7 +134,7 @@ export function EsignActivity() {
                   </div>
                   <p className="mt-1 text-muted">
                     {a.user?.name ?? 'Sistem'}
-                    {metaSummary(a.metadata) ? ` · ${metaSummary(a.metadata)}` : ''}
+                    {auditSummary(a.metadata) ? ` · ${auditSummary(a.metadata)}` : ''}
                   </p>
                 </li>
               ))}

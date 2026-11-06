@@ -136,7 +136,7 @@ export const ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     'USERS_VIEW', 'DEPARTMENTS_VIEW',
   ],
   AGENT: ['INBOX_VIEW', 'INBOX_REPLY', 'CRM_VIEW', 'CRM_EDIT', 'APPROVALS_REVIEW', 'ESIGN_VIEW', 'ESIGN_SIGN'],
-  VIEWER: ['INBOX_VIEW', 'CRM_VIEW', 'AUDIT_VIEW', 'ESIGN_VIEW'],
+  VIEWER: ['INBOX_VIEW', 'CRM_VIEW', 'AUDIT_VIEW'],
 };
 
 /**
@@ -151,12 +151,12 @@ export const ROLE_TEMPLATES: Array<{
   {
     name: 'HR',
     description: 'Human Resources — kelola karyawan & rekrutmen',
-    permissions: ['HR_VIEW', 'HR_MANAGE', 'USERS_VIEW', 'DEPARTMENTS_VIEW', 'AUDIT_VIEW'],
+    permissions: ['HR_VIEW', 'HR_MANAGE', 'USERS_VIEW', 'DEPARTMENTS_VIEW', 'AUDIT_VIEW', 'ESIGN_VIEW', 'ESIGN_CREATE', 'ESIGN_MANAGE'],
   },
   {
     name: 'Finance',
     description: 'Keuangan — akses baca laporan & data terkait',
-    permissions: ['AUDIT_VIEW', 'CRM_VIEW'],
+    permissions: ['AUDIT_VIEW', 'CRM_VIEW', 'ESIGN_VIEW', 'ESIGN_SIGN'],
   },
   {
     name: 'IT Support',
@@ -170,12 +170,13 @@ export const ROLE_TEMPLATES: Array<{
       'INBOX_VIEW', 'INBOX_REPLY', 'CRM_VIEW', 'CRM_EDIT',
       'BROADCAST_CREATE', 'AUDIT_VIEW', 'HR_VIEW',
       'USERS_VIEW', 'DEPARTMENTS_VIEW',
+      'ESIGN_VIEW', 'ESIGN_APPROVE', 'ESIGN_SIGN',
     ],
   },
   {
     name: 'Karyawan',
     description: 'Karyawan — akses dasar operasional',
-    permissions: ['INBOX_VIEW', 'CRM_VIEW'],
+    permissions: ['INBOX_VIEW', 'CRM_VIEW', 'ESIGN_VIEW', 'ESIGN_SIGN'],
   },
 ];
 

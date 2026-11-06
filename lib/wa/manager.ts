@@ -259,6 +259,9 @@ async function handleIncoming(orgId: string, sock: any) {
               waLid: customer.waLid,
               text,
               waMessageId: String(m.key.id || ''),
+              // Id baris pesan masuk — dipakai cabang tanda tangan E-Sign
+              // untuk meredaksi PIN dari riwayat chat setelah diproses.
+              messageId: created.id,
             });
             if (aiRes.handled) {
               const { publishMessage } = await import('@/lib/realtime');

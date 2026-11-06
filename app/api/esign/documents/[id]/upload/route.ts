@@ -4,6 +4,7 @@ import { apiOk, apiErr } from '@/lib/utils';
 import { audit, getClientIp } from '@/lib/audit';
 import { esignAudit } from '@/lib/esign/audit';
 import { sha256 } from '@/lib/esign/hash';
+import { extractAndStoreDocumentText } from '@/lib/esign/extract-text';
 import { writeFile, mkdir, unlink } from 'fs/promises';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
@@ -60,8 +61,14 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     await prisma.esignDocument.update({
       where: { id: doc.id },
-      data: { originalFilePath: stored, originalHash: hash },
+      // File berubah → teks hasil ekstraksi lama tidak berlaku lagi.
+      data: { originalFilePath: stored, originalHash: hash, extractedText: null },
     });
+    // Ekstraksi teks di latar belakang (best-effort, jangan perlambat
+    // respons upload; dipakai AI-Agent untuk menjawab isi dokumen).
+    void extractAndStoreDocumentText(doc.id).catch((e) =>
+      console.error('[esign-extract] latar belakang gagal:', doc.id, e?.message ?? e)
+    );
     await audit({
       organizationId: ctx.organizationId,
       userId: ctx.userId,

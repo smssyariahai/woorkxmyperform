@@ -2,9 +2,13 @@ import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { prisma } from '@/lib/db';
-import { sendText, sendDocument } from '@/lib/wa/manager';
 import { isSignerTurn } from './workflow';
 import { esignSignLink } from './links';
+// lib/wa/manager dimuat MALAS (dynamic import di fungsi yang mengirim)
+// agar modul E-Sign bisa diuji/diimpor tanpa memuat Baileys:
+// whatsapp-rust-bridge hanya mengekspor kondisi "import", sehingga
+// static import dari tsx/CJS gagal resolve. Perilaku di Next.js sama
+// (modul yang sama, di-cache setelah pemuatan pertama).
 
 /**
  * Notifikasi E-Sign via WhatsApp + in-app (Fase 7).
@@ -345,6 +349,7 @@ async function sendFinalPdfToCreator(doc: DocWithRelations): Promise<void> {
   if (!existsSync(full)) return;
   const buf = await readFile(full);
   const fileName = `${doc.documentNumber.replace(/[^a-zA-Z0-9._-]/g, '_')}-final.pdf`;
+  const { sendDocument } = await import('@/lib/wa/manager');
   const res = await sendDocument(
     doc.organizationId,
     phone,
@@ -407,6 +412,7 @@ export async function notifyEsignEvent(input: NotifyInput): Promise<NotifyResult
     }
 
     const recipients = resolveRecipients(doc, input);
+    const { sendText } = await import('@/lib/wa/manager');
     for (const rec of recipients) {
       counts.attempted++;
       const claim = await claimNotification(

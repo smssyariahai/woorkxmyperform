@@ -6,12 +6,13 @@ import Link from 'next/link';
 import { Card, CardTitle, Badge } from '@/components/ui/primitives';
 import { toast } from 'sonner';
 import { friendlyFetchError } from '@/lib/fetch-error';
-import { FileSignature, Trash2, ExternalLink, Download, Users, History, Send, XCircle, CheckCircle2, ShieldCheck, AlertTriangle, Copy, PenLine } from 'lucide-react';
+import { FileSignature, Trash2, ExternalLink, Download, Users, History, Send, XCircle, CheckCircle2, ShieldCheck, AlertTriangle, Copy, PenLine, ChevronLeft } from 'lucide-react';
 import { PdfViewer } from './PdfViewer';
 import { EsignUpload } from './EsignUpload';
 import { SignerManager } from './SignerManager';
 import { EsignClient } from './EsignClient';
 import { ESIGN_STATUS_META } from './status';
+import { ESIGN_ACTION_LABELS, auditSummary } from './audit-label';
 
 const tgl = (s?: string | null) =>
   s ? new Date(s).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
@@ -238,7 +239,7 @@ export function DocumentDetail({ id }: { id: string }) {
   if (loading) return <p className="py-10 text-center text-[13px] text-muted">Memuat dokumen…</p>;
   if (err || !item) {
     return (
-      <div className="mx-auto max-w-3xl py-10 text-center">
+      <div className="mx-auto max-w-3xl p-4 py-10 text-center sm:p-6">
         <p className="font-semibold text-ink">Dokumen tidak dapat dibuka.</p>
         <p className="mt-1 text-[13px] text-muted">{err || 'Dokumen tidak ditemukan.'}</p>
         <Link href="/esign" className="btn-secondary mt-4 inline-block">
@@ -253,16 +254,22 @@ export function DocumentDetail({ id }: { id: string }) {
   const signedCount = (item.signers ?? []).filter((s: any) => s.signingStatus === 'SIGNED').length;
 
   return (
-    <div className="mx-auto max-w-4xl space-y-5">
+    <div className="mx-auto w-full max-w-4xl space-y-4 p-4 sm:p-6 lg:p-8">
       <EsignClient onEvent={() => load(true)} />
+      <Link href="/esign" className="inline-flex items-center gap-1 text-[13px] font-medium text-muted transition-colors hover:text-ink">
+        <ChevronLeft className="h-4 w-4" /> Kembali ke daftar
+      </Link>
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-xl font-bold text-ink">
-            <FileSignature className="h-5 w-5 text-brand-700" /> {item.title}
-          </h1>
-          <p className="mt-1 text-[13px] text-muted">
-            {item.documentNumber} · {item.category} · dibuat {tgl(item.createdAt)} oleh {item.createdBy?.name ?? '—'}
-          </p>
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-brand-600 text-white shadow-sm">
+            <FileSignature className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold leading-tight text-ink sm:text-2xl">{item.title}</h1>
+            <p className="mt-0.5 text-[13px] text-muted">
+              {item.documentNumber} · {item.category} · dibuat {tgl(item.createdAt)} oleh {item.createdBy?.name ?? '—'}
+            </p>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge tone={STATUS_TONE[item.status] ?? 'gray'}>{meta.label}</Badge>
@@ -323,68 +330,82 @@ export function DocumentDetail({ id }: { id: string }) {
       </div>
 
       <Card>
-        <div className="grid gap-3 text-[13px] sm:grid-cols-2">
-          <p>
-            <span className="text-muted">Alur tanda tangan: </span>
-            <b>{item.workflowType === 'PARALLEL' ? 'Bersamaan (parallel)' : 'Berurutan (sequential)'}</b>
-          </p>
-          <p>
-            <span className="text-muted">Persetujuan: </span>
-            <b>
+        <dl className="grid gap-x-6 gap-y-3 text-[13px] sm:grid-cols-2">
+          <div>
+            <dt className="text-muted">Alur tanda tangan</dt>
+            <dd className="mt-0.5 font-semibold text-ink">
+              {item.workflowType === 'PARALLEL' ? 'Bersamaan (parallel)' : 'Berurutan (sequential)'}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted">Persetujuan</dt>
+            <dd className="mt-0.5 font-semibold text-ink">
               {item.approvalStatus === 'NOT_REQUIRED'
                 ? 'Tidak diperlukan'
                 : `${item.approvalStatus}${item.approver?.name ? ` · oleh ${item.approver.name}` : ''}`}
-            </b>
-          </p>
-          <p>
-            <span className="text-muted">Kedaluwarsa: </span>
-            <b>{tgl(item.expiresAt)}</b>
-          </p>
-          <p>
-            <span className="text-muted">Penandatangan: </span>
-            <b>
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted">Kedaluwarsa</dt>
+            <dd className="mt-0.5 font-semibold text-ink">{tgl(item.expiresAt)}</dd>
+          </div>
+          <div>
+            <dt className="text-muted">Penandatangan</dt>
+            <dd className="mt-0.5 font-semibold text-ink">
               {signedCount}/{item.signers?.length ?? 0} selesai
-            </b>
-          </p>
+            </dd>
+          </div>
           {item.description && (
-            <p className="sm:col-span-2">
-              <span className="text-muted">Deskripsi: </span>
-              {item.description}
-            </p>
+            <div className="sm:col-span-2">
+              <dt className="text-muted">Deskripsi</dt>
+              <dd className="mt-0.5 text-ink">{item.description}</dd>
+            </div>
           )}
           {item.originalHash && (
-            <p className="sm:col-span-2 break-all">
-              <span className="text-muted">SHA-256 file asli: </span>
-              <code className="text-[12px]">{item.originalHash}</code>
-            </p>
+            <div className="sm:col-span-2">
+              <dt className="text-muted">SHA-256 file asli</dt>
+              <dd className="mt-0.5">
+                <code className="text-[12px] text-ink" title={item.originalHash}>
+                  {item.originalHash.slice(0, 32)}…
+                </code>
+              </dd>
+            </div>
           )}
           {item.finalHash && (
-            <p className="sm:col-span-2 break-all">
-              <span className="text-muted">SHA-256 PDF final: </span>
-              <code className="text-[12px]">{item.finalHash}</code>
-            </p>
+            <div className="sm:col-span-2">
+              <dt className="text-muted">SHA-256 PDF final</dt>
+              <dd className="mt-0.5">
+                <code className="text-[12px] text-ink" title={item.finalHash}>
+                  {item.finalHash.slice(0, 32)}…
+                </code>
+              </dd>
+            </div>
           )}
           {item.completedAt && (
-            <p>
-              <span className="text-muted">Selesai: </span>
-              <b>{jam(item.completedAt)}</b>
-            </p>
+            <div>
+              <dt className="text-muted">Selesai</dt>
+              <dd className="mt-0.5 font-semibold text-ink">{jam(item.completedAt)}</dd>
+            </div>
           )}
-        </div>
-        {item.originalFilePath && (
-          <a href={fileUrl} target="_blank" rel="noreferrer" className="btn-secondary mt-4 inline-block">
-            <ExternalLink className="mr-1 inline h-4 w-4" /> Buka PDF di tab baru
-          </a>
-        )}
-        {item.status === 'COMPLETED' && item.finalFilePath && (
-          <>
-            <a href={`/api/esign/documents/${item.id}/final`} className="btn-primary ml-2 mt-4 inline-block">
-              <Download className="mr-1 inline h-4 w-4" /> Unduh PDF Final
-            </a>
-            <button type="button" className="btn-secondary ml-2 mt-4" onClick={regenerate} disabled={regenerating}>
-              {regenerating ? 'Membuat ulang…' : 'Buat ulang PDF final'}
-            </button>
-          </>
+        </dl>
+        {(item.originalFilePath || (item.status === 'COMPLETED' && item.finalFilePath)) && (
+          <div className="mt-4 flex flex-wrap gap-2 border-t border-line/70 pt-4">
+            {item.originalFilePath && (
+              <a href={fileUrl} target="_blank" rel="noreferrer" className="btn-secondary">
+                <ExternalLink className="mr-1 inline h-4 w-4" /> Buka PDF di tab baru
+              </a>
+            )}
+            {item.status === 'COMPLETED' && item.finalFilePath && (
+              <>
+                <a href={`/api/esign/documents/${item.id}/final`} className="btn-primary">
+                  <Download className="mr-1 inline h-4 w-4" /> Unduh PDF Final
+                </a>
+                <button type="button" className="btn-secondary" onClick={regenerate} disabled={regenerating}>
+                  {regenerating ? 'Membuat ulang…' : 'Buat ulang PDF final'}
+                </button>
+              </>
+            )}
+          </div>
         )}
       </Card>
 
@@ -392,8 +413,8 @@ export function DocumentDetail({ id }: { id: string }) {
       <Card>
         <CardTitle>Tampilan tanda tangan di PDF final</CardTitle>
         <p className="mt-1 text-[13px] text-muted">
-          Elemen di bawah gambar tanda tangan. Bisa diubah kapan saja — ubah lalu tekan Simpan; untuk dokumen yang
-          sudah selesai, tekan &quot;Buat ulang PDF final&quot; agar perubahan terlihat di file final.
+          Elemen di bawah gambar tanda tangan. Simpan untuk menerapkan; dokumen selesai perlu &quot;Buat ulang PDF
+          final&quot;.
         </p>
         <div className="mt-3 grid gap-2 text-[13px] sm:grid-cols-2">
           <label className="flex items-center gap-2">
@@ -441,9 +462,9 @@ export function DocumentDetail({ id }: { id: string }) {
             <ShieldCheck className="h-4 w-4" /> Verifikasi Integritas
           </span>
         </CardTitle>
-        <p className="mt-2 text-[13px] text-muted">
-          Memeriksa ulang hash SHA-256 file di server terhadap hash yang tersimpan saat dokumen dibuat/difinalisasi.
-          Verifikasi ini adalah pemeriksaan integritas internal — bukan sertifikat elektronik tersertifikasi.
+        <p className="mt-1 text-[13px] text-muted">
+          Memeriksa ulang hash SHA-256 file di server terhadap hash tersimpan — pemeriksaan integritas internal, bukan
+          sertifikat tersertifikasi.
         </p>
         <button type="button" className="btn-primary mt-3" onClick={checkIntegrity} disabled={verifying}>
           {verifying ? 'Memeriksa…' : 'Periksa Sekarang'}
@@ -507,15 +528,22 @@ export function DocumentDetail({ id }: { id: string }) {
         </CardTitle>
         {item.auditLogs?.length ? (
           <ul className="mt-3 space-y-2">
-            {item.auditLogs.map((a: any) => (
-              <li key={a.id} className="flex items-start justify-between gap-2 text-[13px]">
-                <span>
-                  <b>{a.action}</b>
-                  {a.metadata && a.metadata !== '{}' ? <span className="text-muted"> — {a.metadata}</span> : null}
-                </span>
-                <span className="shrink-0 text-muted">{jam(a.createdAt)}</span>
-              </li>
-            ))}
+            {item.auditLogs.map((a: any) => {
+              const summary = auditSummary(a.metadata);
+              return (
+                <li key={a.id} className="flex items-start justify-between gap-3 text-[13px]">
+                  <span className="min-w-0">
+                    <b className="text-ink">{ESIGN_ACTION_LABELS[a.action] ?? a.action}</b>
+                    {summary ? (
+                      <span className="mt-0.5 block truncate text-muted" title={summary}>
+                        {summary}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="shrink-0 text-muted">{jam(a.createdAt)}</span>
+                </li>
+              );
+            })}
           </ul>
         ) : (
           <p className="mt-2 text-[13px] text-muted">Belum ada aktivitas tercatat.</p>

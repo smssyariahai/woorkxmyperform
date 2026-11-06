@@ -2,6 +2,8 @@ import { prisma } from '@/lib/db';
 import { getNineRouterConfig, chatCompletion } from './ninerouter';
 import { getOrCreateBotConfig, reserveCredit, finalizeCharge, refundCredit, markFailed } from './credits';
 import { getEsignQaReply } from '@/lib/esign/qa';
+import { handleEsignWaSign } from '@/lib/esign/wa-sign';
+import { getEsignDocQaReply, buildDocQaMessages } from '@/lib/esign/doc-qa';
 
 /**
  * Bot AI — dipanggil setelah BotFlow tidak menangani pesan.
@@ -23,6 +25,8 @@ export interface AiIncoming {
   waLid: string | null;
   text: string;
   waMessageId: string; // id unik pesan (idempotency)
+  /** Id baris ConversationMessage pesan masuk (untuk redaksi PIN E-Sign). */
+  messageId?: string;
 }
 
 export type AiResult =
@@ -77,6 +81,100 @@ export async function maybeAiReply(
 
   // 3. Kredensial tersedia?
   if (!cfg.baseUrl) return { handled: false, reason: 'no-config' };
+
+  // 3a. Tanda tangan via WhatsApp (deterministik, tanpa LLM, tanpa potong
+  // kredit). Intent eksplisit ("ok, saya ttd") + PIN → dokumen langsung
+  // tertandatangani memakai tanda tangan tersimpan user. State machine di
+  // lib/esign/wa-sign.ts. Bila bukan bagian alur ini, kembalikan null dan
+  // lanjut ke Q&A / AI berbayar seperti biasa.
+  const esignWaSignReply = await handleEsignWaSign(orgId, msg).catch(() => null);
+  if (esignWaSignReply) {
+    const send = deps?.sendText ?? (await import('@/lib/wa/manager')).sendText;
+    const sent = await send(orgId, { phone: msg.phone, waLid: msg.waLid }, esignWaSignReply);
+    if (!sent.ok) return { handled: false, reason: 'esign-send-failed' };
+    await saveBotMessage(msg.conversationId, esignWaSignReply, {
+      sentVia: 'whatsapp',
+      aiBot: true,
+      esignWaSign: true,
+      model: cfg.model,
+    });
+    return { handled: true, reply: esignWaSignReply };
+  }
+
+  // 3c. Jawab isi dokumen E-Sign (ringkasan / tanya isi, LLM dengan
+  // grounding teks PDF hasil ekstraksi).
+  // Ditempatkan SEBELUM Q&A 3b (bukan sesudahnya): intent 'lemah' 3b
+  // menangkap SEMUA pesan yang mengandung kata 'dokumen', sehingga
+  // pertanyaan isi ("ringkas dokumen ...") akan ditelan 3b sebagai
+  // pertanyaan status bila 3c berada di bawahnya. Intent 3c ketat
+  // (kata ringkasan/isi + penanda dokumen), jadi pertanyaan status 3b
+  // tidak terpengaruh — 3b sendiri tidak diubah.
+  // Kredit: jawaban LLM mengikuti alur tagihan normal Bot AI (reservasi
+  // SEBELUM panggil model, finalisasi setelah kirim sukses, refund bila
+  // gagal). Jawaban deterministik (tidak ditemukan / daftar pilihan /
+  // tanpa teks) TANPA potong kredit, seperti Q&A.
+  const docQa = await getEsignDocQaReply(orgId, msg).catch(() => null);
+  if (docQa?.kind === 'reply') {
+    const send = deps?.sendText ?? (await import('@/lib/wa/manager')).sendText;
+    const sent = await send(orgId, { phone: msg.phone, waLid: msg.waLid }, docQa.text);
+    if (!sent.ok) return { handled: false, reason: 'esign-send-failed' };
+    await saveBotMessage(msg.conversationId, docQa.text, {
+      sentVia: 'whatsapp',
+      aiBot: true,
+      esignDocQA: true,
+      model: cfg.model,
+    });
+    return { handled: true, reply: docQa.text };
+  }
+  if (docQa?.kind === 'llm') {
+    let usageId: string;
+    try {
+      const r = await reserveCredit({
+        organizationId: orgId,
+        messageId: msg.waMessageId,
+        conversationId: msg.conversationId,
+        amount: cfg.pricePerReply,
+        model: cfg.model,
+      });
+      usageId = r.usageId;
+    } catch (e: any) {
+      if (e.message === 'DUPLICATE_MESSAGE') return { handled: false, reason: 'duplicate' };
+      if (e.message === 'INSUFFICIENT_BALANCE') {
+        await markFailed(msg.waMessageId, orgId, 'Saldo tidak cukup').catch(() => {});
+        return { handled: false, reason: 'insufficient' };
+      }
+      if (e.message === 'INSUFFICIENT_MASTER_BALANCE' || e.message === 'MASTER_MIN_BALANCE_BLOCKED') {
+        await markFailed(msg.waMessageId, orgId, 'Saldo Master tidak cukup').catch(() => {});
+        return { handled: false, reason: 'insufficient-master' };
+      }
+      await markFailed(msg.waMessageId, orgId, e.message).catch(() => {});
+      return { handled: false, reason: 'reserve-error' };
+    }
+    const ai = await chatCompletion(cfg, buildDocQaMessages(docQa), { maxTokens: 1000 });
+    if (!ai.ok || !ai.text) {
+      await refundCredit(usageId, ai.error ?? 'AI gagal').catch(() => {});
+      return { handled: false, reason: 'esign-docqa-ai-failed' };
+    }
+    let replyText = ai.text;
+    if (docQa.truncated) {
+      replyText +=
+        '\n\n_Catatan: dokumen sangat panjang; ringkasan ini berdasarkan bagian awal dokumen._';
+    }
+    const send = deps?.sendText ?? (await import('@/lib/wa/manager')).sendText;
+    const sent = await send(orgId, { phone: msg.phone, waLid: msg.waLid }, replyText);
+    if (!sent.ok) {
+      await refundCredit(usageId, sent.error ?? 'Kirim WA gagal').catch(() => {});
+      return { handled: false, reason: 'send-failed' };
+    }
+    await finalizeCharge(usageId).catch(() => {});
+    await saveBotMessage(msg.conversationId, replyText, {
+      sentVia: 'whatsapp',
+      aiBot: true,
+      esignDocQA: true,
+      model: cfg.model,
+    });
+    return { handled: true, reply: replyText };
+  }
 
   // 3b. Q&A E-Sign (deterministik, tanpa LLM, tanpa potong kredit).
   // Cabang ini hanya aktif bila gerbang bot di atas sudah lolos (bot ON).
