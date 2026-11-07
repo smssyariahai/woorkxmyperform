@@ -1,13 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Card, CardTitle, Badge, Avatar } from '@/components/ui/primitives';
 import { Button } from '@/components/ui/button';
 import { Input, Field, PasswordInput } from '@/components/ui/input';
 import { Skeleton, ErrorState } from '@/components/ui/states';
 import { formatDateTime } from '@/lib/utils';
-import { User as UserIcon, ShieldCheck, MonitorSmartphone } from 'lucide-react';
+import { User as UserIcon, ShieldCheck, MonitorSmartphone, Camera } from 'lucide-react';
 
 const ROLE_LABEL: Record<string, string> = {
   OWNER: 'Owner',
@@ -27,6 +27,8 @@ export function ProfileClient() {
   const [curPw, setCurPw] = useState('');
   const [newPw, setNewPw] = useState('');
   const [newPw2, setNewPw2] = useState('');
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -72,8 +74,51 @@ export function ProfileClient() {
     }
   }
 
-  async function changePassword() {
-    if (newPw !== newPw2) {
+  async function onAvatarFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'].includes(file.type)) {
+      toast.error('Format gambar harus PNG, JPG, WEBP, atau SVG.');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('Ukuran gambar maksimal 2MB.');
+      return;
+    }
+    setUploadingAvatar(true);
+    try {
+      const fd = new FormData();
+      fd.append('avatar', file);
+      const r = await fetch('/api/settings/avatar', { method: 'POST', body: fd });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.message);
+      toast.success('Foto profil diperbarui.');
+      load();
+    } catch (err: any) {
+      toast.error(err.message || 'Gagal mengunggah foto.');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  }
+
+  async function removeAvatar() {
+    if (!confirm('Hapus foto profil?')) return;
+    setUploadingAvatar(true);
+    try {
+      const r = await fetch('/api/settings/avatar', { method: 'DELETE' });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.message);
+      toast.success('Foto profil dihapus.');
+      load();
+    } catch (err: any) {
+      toast.error(err.message || 'Gagal menghapus foto.');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  }
+
+  async function changePassword() {    if (newPw !== newPw2) {
       toast.error('Konfirmasi password baru tidak cocok.');
       return;
     }
@@ -131,7 +176,28 @@ export function ProfileClient() {
 
       <Card>
         <div className="flex items-center gap-4 mb-6">
-          <Avatar name={user.name} size={64} />
+          <div className="relative shrink-0">
+            <Avatar name={user.name} size={64} src={user.avatar} />
+            <button
+              type="button"
+              onClick={() => avatarInputRef.current?.click()}
+              disabled={uploadingAvatar}
+              className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-brand text-white shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+              title="Ganti foto profil"
+              aria-label="Ganti foto profil"
+            >
+              <Camera className="h-3.5 w-3.5" />
+            </button>
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/svg+xml"
+              className="hidden"
+              onChange={onAvatarFile}
+              aria-hidden
+              tabIndex={-1}
+            />
+          </div>
           <div>
             <p className="text-[16px] font-bold text-ink">{user.name}</p>
             <p className="text-[13px] text-muted">{user.email}</p>
@@ -139,6 +205,16 @@ export function ProfileClient() {
               <Badge tone="blue">{ROLE_LABEL[data.role] ?? data.role}</Badge>
               <Badge tone="green">{data.org.name}</Badge>
             </div>
+            {user.avatar && (
+              <button
+                type="button"
+                onClick={removeAvatar}
+                disabled={uploadingAvatar}
+                className="mt-1.5 text-[12px] font-medium text-danger hover:underline"
+              >
+                Hapus foto
+              </button>
+            )}
           </div>
         </div>
         <CardTitle className="mb-4 flex items-center gap-2">

@@ -60,11 +60,24 @@ export function Avatar({
   name,
   size = 36,
   color,
+  src,
 }: {
   name: string;
   size?: number;
   color?: string;
+  /** Foto profil (URL) — bila ada, foto yang tampil, bukan huruf awal. */
+  src?: string | null;
 }) {
+  if (src) {
+    return (
+      <img
+        src={src}
+        alt={name}
+        className="rounded-full object-cover shrink-0 bg-slate-100"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
   const initial = name.replace(/^(Bu|Pak)\s+/i, '').charAt(0).toUpperCase() || '?';
   const palette = ['#087BFF', '#8B5CF6', '#22C55E', '#F59E0B', '#EF4444', '#06B6D4'];
   const bg = color ?? palette[(name.charCodeAt(0) + name.length) % palette.length];

@@ -9,7 +9,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const ctx = await getAuthContext();
   if (!ctx) redirect('/login');
 
-  const [unread, permSet, platformPermSet, trial, memberships, moduleLevels, subscription] = await Promise.all([
+  const [unread, permSet, platformPermSet, trial, memberships, moduleLevels, subscription, me] = await Promise.all([
     prisma.customer.count({
       where: { organizationId: ctx.organizationId, unreadCount: { gt: 0 } },
     }),
@@ -27,6 +27,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
     // Hak akses modul per pengguna (Sistem Modular): kunci modul baru + kunci lama.
     getUserModuleLevels(ctx.userId, ctx.organizationId),
     getSubscription(ctx.organizationId),
+    // Foto profil pengguna (untuk menu akun di sidebar).
+    prisma.user.findUnique({ where: { id: ctx.userId }, select: { avatar: true } }),
   ]);
 
   const subStatus = effectiveSubscriptionStatus(subscription);
@@ -50,6 +52,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       orgId={ctx.organizationId}
       userName={ctx.name}
       userEmail={ctx.email}
+      userAvatar={me?.avatar ?? null}
       role={ctx.role}
       isSuperAdmin={ctx.isSuperAdmin}
       permissions={[...permSet]}

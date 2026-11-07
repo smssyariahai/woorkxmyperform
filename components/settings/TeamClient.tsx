@@ -265,7 +265,7 @@ export function TeamClient({ selfId }: { selfId: string }) {
               const isSelf = m.user.id === selfId;
               return (
                 <div key={m.id} className="flex flex-wrap items-center gap-3 px-5 py-3.5 border-b border-line/60 last:border-0">
-                  <Avatar name={m.user.name} size={38} />
+                  <Avatar name={m.user.name} size={38} src={m.user.avatar} />
                   <div className="flex-1 min-w-[180px]">
                     <p className="text-[14px] font-semibold text-ink">
                       {m.user.name} {isSelf && <Badge tone="blue" className="ml-1">Anda</Badge>}

@@ -23,6 +23,7 @@ export function AppShell({
   orgId,
   userName,
   userEmail,
+  userAvatar,
   role,
   isSuperAdmin,
   permissions,
@@ -39,6 +40,8 @@ export function AppShell({
   orgId: string;
   userName: string;
   userEmail: string;
+  /** Foto profil pengguna — null bila belum ada. */
+  userAvatar: string | null;
   role: string;
   isSuperAdmin: boolean;
   permissions: string[];
@@ -110,6 +113,7 @@ export function AppShell({
           orgId={orgId}
           userName={userName}
           userEmail={userEmail}
+          userAvatar={userAvatar}
           role={role}
           isSuperAdmin={isSuperAdmin}
           permissions={filterTrialMenus(permissions, trial)}
@@ -132,6 +136,7 @@ export function AppShell({
               orgId={orgId}
               userName={userName}
               userEmail={userEmail}
+              userAvatar={userAvatar}
               role={role}
               isSuperAdmin={isSuperAdmin}
               permissions={filterTrialMenus(permissions, trial)}

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
-import { Logo } from '@/components/ui/primitives';
+import { Logo, Avatar } from '@/components/ui/primitives';
 import {
   LayoutDashboard,
   Inbox,
@@ -97,6 +97,7 @@ export function Sidebar({
   orgId,
   userName,
   userEmail,
+  userAvatar,
   role,
   isSuperAdmin,
   permissions,
@@ -112,6 +113,8 @@ export function Sidebar({
   orgId: string;
   userName: string;
   userEmail: string;
+  /** Foto profil pengguna — null bila belum ada. */
+  userAvatar: string | null;
   role: string;
   isSuperAdmin: boolean;
   permissions: string[];
@@ -448,9 +451,7 @@ export function Sidebar({
             'w-full flex items-center gap-2.5 rounded-btn px-2 py-2 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors text-left'
           )}
         >
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand text-white text-[13px] font-bold">
-            {userName.charAt(0).toUpperCase()}
-          </span>
+          <Avatar name={userName} size={36} src={userAvatar} />
           {!collapsed && (
             <span className="flex-1 min-w-0">
               <span className="block truncate text-[13px] font-semibold text-ink">{userName}</span>
