@@ -10,3 +10,10 @@ out/
 # data runtime & file pelanggan — tidak ikut ke GitHub
 uploads/
 *.tsbuildinfo
+
+# kredensial & cache — tidak boleh masuk GitHub
+.pgpassword
+.wwebjs_cache/
+.wwebjs_auth/
+*.pem
+*.key
