@@ -7,10 +7,12 @@ import { seedOrgDefaults } from '@/lib/auth';
 import { slugify } from '@/lib/utils';
 import { randomUUID } from 'node:crypto';
 import { ensureOfficeDns } from '@/lib/cloudflare';
+import { calcSubscriptionTotal, MODULAR_MODULE_MAP, periodEndFrom } from '@/lib/modular';
+import { getModulePrices, nextInvoiceNumber } from '@/lib/subscription';
 
 export const dynamic = 'force-dynamic';
 
-/** GET /api/super/offices — daftar seluruh kantor + statistik. */
+/** GET /api/super/offices — daftar seluruh kantor + statistik + langganan. */
 export async function GET(req: Request) {
   try {
     await requirePlatformPermission('PLATFORM_TENANTS_VIEW', req);
@@ -27,6 +29,7 @@ export async function GET(req: Request) {
           include: { user: { select: { name: true, email: true } } },
           take: 3,
         },
+        subscription: { include: { modules: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -43,6 +46,16 @@ export async function GET(req: Request) {
         customerCount: o._count.customers,
         owners: o.memberships.map((m) => m.user),
         createdAt: o.createdAt,
+        subscription: o.subscription
+          ? {
+              status: o.subscription.status,
+              billingCycle: o.subscription.billingCycle,
+              userQuota: o.subscription.userQuota,
+              startDate: o.subscription.startDate,
+              endDate: o.subscription.endDate,
+              modules: o.subscription.modules.map((m) => m.moduleKey),
+            }
+          : null,
       }))
     );
   } catch (e: any) {
@@ -52,8 +65,12 @@ export async function GET(req: Request) {
 }
 
 /**
- * POST /api/super/offices — buat kantor baru + admin kantor.
- * Body: { name, adminName, adminEmail, adminPassword }
+ * POST /api/super/offices — buat kantor baru + admin kantor + langganan + invoice.
+ * Body: { name, description?, phone?, email?, address?, adminName, adminEmail, adminPassword,
+ *         modules?: ('chat'|'hris'|'audit')[], userQuota?: number, billingCycle?: 'MONTHLY'|'YEARLY', startDate?: string }
+ * Modul & kuota tidak diisi = semua modul berbayar, kuota 10, bulanan, mulai hari ini.
+ * Kantor dibuat dengan langganan PENDING_PAYMENT + Invoice PENDING — admin
+ * kantor baru bisa login setelah invoice ditandai lunas.
  */
 export async function POST(req: Request) {
   try {
@@ -69,6 +86,28 @@ export async function POST(req: Request) {
     }
     if (adminPassword.length < 8) return apiErr('Password admin minimal 8 karakter.', 422);
 
+    // --- Langganan ---
+    const BILLABLE = ['chat', 'hris', 'audit'] as const;
+    let modules: string[] = Array.isArray(body?.modules) ? body.modules.map(String) : [...BILLABLE];
+    modules = [...new Set(modules.filter((m) => (BILLABLE as readonly string[]).includes(m)))];
+    const userQuota = body?.userQuota === undefined || body?.userQuota === null ? 10 : Number(body.userQuota);
+    if (!Number.isInteger(userQuota) || userQuota < 1 || userQuota > 10000) {
+      return apiErr('Kuota karyawan harus angka 1–10000.', 422);
+    }
+    const billingCycle = body?.billingCycle === 'YEARLY' ? 'YEARLY' : 'MONTHLY';
+    const startDate = body?.startDate ? new Date(String(body.startDate)) : new Date();
+    if (Number.isNaN(startDate.getTime())) return apiErr('Tanggal mulai tidak valid.', 422);
+    const endDate = periodEndFrom(startDate, billingCycle as 'MONTHLY' | 'YEARLY');
+
+    const prices = await getModulePrices();
+    const chosenPrices = prices.filter((p) => modules.includes(p.moduleKey));
+    const total = calcSubscriptionTotal({
+      modules: chosenPrices,
+      userQuota,
+      cycle: billingCycle as 'MONTHLY' | 'YEARLY',
+    });
+    const cycleLabel = billingCycle === 'YEARLY' ? 'tahunan' : 'bulanan';
+
     const slug = `${slugify(name)}-${randomUUID().slice(0, 6)}`;
 
     // Subdomain otomatis dari nama kantor (unik)
@@ -82,9 +121,41 @@ export async function POST(req: Request) {
       subdomain = `${base}${i}`;
     }
 
+    const description = typeof body?.description === 'string' ? body.description.trim().slice(0, 500) : null;
+    const phone = typeof body?.phone === 'string' ? body.phone.trim().slice(0, 30) : null;
+    const email = typeof body?.email === 'string' ? body.email.trim().slice(0, 120) : null;
+    const address = typeof body?.address === 'string' ? body.address.trim().slice(0, 300) : null;
+
     const result = await prisma.$transaction(async (tx) => {
       const org = await tx.organization.create({
-        data: { name, slug, subdomain, subscription: { create: { plan: 'FREE' } } },
+        data: {
+          name,
+          slug,
+          subdomain,
+          description,
+          phone,
+          email,
+          address,
+          subscription: {
+            create: {
+              plan: 'FREE',
+              status: 'PENDING_PAYMENT',
+              billingCycle,
+              userQuota,
+              startDate,
+              endDate,
+              modules: {
+                create: chosenPrices.map((p) => ({
+                  moduleKey: p.moduleKey,
+                  pricePerUserSnapshot:
+                    billingCycle === 'YEARLY' ? p.yearlyPerUser : p.monthlyPerUser,
+                  status: 'ACTIVE',
+                })),
+              },
+            },
+          },
+        },
+        include: { subscription: true },
       });
       let adminUser = await tx.user.findUnique({ where: { email: adminEmail } });
       if (!adminUser) {
@@ -97,7 +168,37 @@ export async function POST(req: Request) {
           },
         });
       }
-      return { org, adminUser };
+      const number = await nextInvoiceNumber(tx as any);
+      const dueDate = new Date(Date.now() + 7 * 24 * 3600 * 1000);
+      const invoice = await tx.invoice.create({
+        data: {
+          organizationId: org.id,
+          subscriptionId: org.subscription!.id,
+          number,
+          status: 'PENDING',
+          billingCycle,
+          periodStart: startDate,
+          periodEnd: endDate,
+          subtotal: total,
+          total,
+          dueDate,
+          items: {
+            create: chosenPrices.map((p) => {
+              const unit = billingCycle === 'YEARLY' ? p.yearlyPerUser : p.monthlyPerUser;
+              const label = MODULAR_MODULE_MAP.get(p.moduleKey as any)?.label ?? p.moduleKey;
+              return {
+                moduleKey: p.moduleKey,
+                description: `Modul ${label} — ${userQuota} pengguna (${cycleLabel})`,
+                quantity: userQuota,
+                unitPrice: unit,
+                amount: unit * userQuota,
+              };
+            }),
+          },
+        },
+        include: { items: true },
+      });
+      return { org, adminUser, invoice };
     });
 
     await seedOrgDefaults(result.org.id);
@@ -115,7 +216,7 @@ export async function POST(req: Request) {
       userId: ctx.userId,
       action: 'CREATE_OFFICE',
       module: 'OFFICES',
-      description: `Administrator Pusat membuat kantor "${name}" dengan admin ${adminName} (${adminEmail})`,
+      description: `Administrator Pusat membuat kantor "${name}" dengan admin ${adminName} (${adminEmail}) — modul: ${modules.join(', ') || 'tidak ada modul berbayar'}, kuota ${userQuota}, ${cycleLabel}, invoice ${result.invoice.number} Rp${total.toLocaleString('id-ID')} (PENDING)`,
       ipAddress: getClientIp(req),
     });
 
@@ -139,6 +240,21 @@ export async function POST(req: Request) {
         siteUrl: `https://${subdomain}.xsramazys.dev`,
         dnsOk,
         dnsError,
+        subscription: {
+          status: 'PENDING_PAYMENT',
+          billingCycle,
+          userQuota,
+          startDate,
+          endDate,
+          modules,
+        },
+        invoice: {
+          id: result.invoice.id,
+          number: result.invoice.number,
+          status: result.invoice.status,
+          total: result.invoice.total,
+          dueDate: result.invoice.dueDate,
+        },
       },
       201
     );

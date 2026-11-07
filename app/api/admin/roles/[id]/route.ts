@@ -3,6 +3,7 @@ import { requirePermission, getUserPermissions, assertCanGrant } from '@/lib/aut
 import { apiOk, apiErr } from '@/lib/utils';
 import { audit, getClientIp } from '@/lib/audit';
 import { PERMISSION_CATALOG, type PermissionKey } from '@/lib/permissions';
+import { publishModuleAccess } from '@/lib/realtime';
 
 export const dynamic = 'force-dynamic';
 
@@ -72,6 +73,12 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         }
       }
     });
+
+    // Permission role berubah: semua sesi di kantor ini refresh sidebar
+    // otomatis (menu yang tidak lagi diizinkan langsung hilang tanpa reload).
+    if (Array.isArray(body?.permissions)) {
+      publishModuleAccess(ctx.organizationId, null);
+    }
 
     await audit({
       organizationId: ctx.organizationId,

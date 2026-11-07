@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { Card, CardTitle, Badge } from '@/components/ui/primitives';
-import { Field } from '@/components/ui/input';
+import { Card, Badge } from '@/components/ui/primitives';
 import { Input } from '@/components/ui/input';
 import { Plus, Search, Power, Globe2, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -12,9 +11,6 @@ import { cn } from '@/lib/utils';
 export function OfficesClient() {
   const [items, setItems] = useState<any[]>([]);
   const [q, setQ] = useState('');
-  const [modal, setModal] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({ name: '', adminName: '', adminEmail: '', adminPassword: '' });
 
   const load = useCallback(async () => {
     const r = await fetch(`/api/super/offices?q=${encodeURIComponent(q)}`);
@@ -26,35 +22,6 @@ export function OfficesClient() {
     const t = setTimeout(load, 250);
     return () => clearTimeout(t);
   }, [load]);
-
-  async function create() {
-    if (!form.name.trim() || !form.adminName.trim() || !form.adminEmail.trim() || form.adminPassword.length < 8) {
-      toast.error('Lengkapi data kantor & admin (password min. 8 karakter).');
-      return;
-    }
-    setBusy(true);
-    try {
-      const r = await fetch('/api/super/offices', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
-      });
-      const j = await r.json();
-      if (!j.success) throw new Error(j.message);
-      if (j.data.dnsOk) {
-        toast.success(`Kantor "${form.name}" dibuat. Situs: ${j.data.siteUrl}`);
-      } else {
-        toast.warning(`Kantor dibuat, tetapi DNS subdomain gagal: ${j.data.dnsError || 'periksa nanti'}.`);
-      }
-      setModal(false);
-      setForm({ name: '', adminName: '', adminEmail: '', adminPassword: '' });
-      load();
-    } catch (e: any) {
-      toast.error(e.message || 'Gagal membuat kantor.');
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function toggleActive(o: any) {
     if (!confirm(`${o.isActive ? 'Nonaktifkan' : 'Aktifkan'} kantor "${o.name}"?`)) return;
@@ -95,9 +62,9 @@ export function OfficesClient() {
           <h1 className="text-[22px] font-bold text-ink">Kantor</h1>
           <p className="text-sm text-muted">Kelola seluruh kantor Woork.id beserta adminnya.</p>
         </div>
-        <button onClick={() => setModal(true)} className="btn-primary !py-2 text-[13px]">
+        <Link href="/admin/offices/new" className="btn-primary !py-2 text-[13px]">
           <Plus className="h-4 w-4" /> Buat Kantor
-        </button>
+        </Link>
       </div>
 
       <div className="relative max-w-sm">
@@ -134,6 +101,17 @@ export function OfficesClient() {
                 <Globe2 className="h-3.5 w-3.5" /> {o.siteUrl.replace('https://', '')}
               </a>
             )}
+            {o.subscription && (
+              <p className="mt-2 text-[12px] text-muted">
+                Langganan{' '}
+                <b className={o.subscription.status === 'ACTIVE' ? 'text-emerald-600' : 'text-amber-600'}>
+                  {o.subscription.status === 'ACTIVE' ? 'Aktif' : o.subscription.status === 'PENDING_PAYMENT' ? 'Menunggu Pembayaran' : o.subscription.status}
+                </b>
+                {' · '}
+                {o.subscription.billingCycle === 'YEARLY' ? 'Tahunan' : 'Bulanan'} · kuota {o.subscription.userQuota} user
+                {o.subscription.endDate ? ` · s.d. ${new Date(o.subscription.endDate).toLocaleDateString('id-ID')}` : ''}
+              </p>
+            )}
             <div className="mt-3 flex items-center justify-between text-[12.5px] text-muted">
               <span>{o.userCount} pengguna · {o.customerCount} pelanggan</span>
               <span className="inline-flex gap-1">
@@ -166,28 +144,6 @@ export function OfficesClient() {
         <Card><p className="text-sm text-muted text-center py-8">Belum ada kantor. Buat kantor pertama di atas.</p></Card>
       )}
 
-      {modal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-brand-900/45" onClick={() => setModal(false)} />
-          <div className="relative card w-full max-w-md p-6 shadow-pop space-y-4">
-            <CardTitle>Buat Kantor Baru</CardTitle>
-            <Field label="Nama kantor"><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="SINERGI" /></Field>
-            <p className="-mt-2 text-[12px] text-muted">Subdomain & situs publik dibuat otomatis, mis. <b>sinergi.xsramazys.dev</b>.</p>
-            <div className="border-t border-line pt-4 space-y-4">
-              <p className="text-[13px] font-semibold text-ink">Admin Kantor</p>
-              <Field label="Nama lengkap"><Input value={form.adminName} onChange={(e) => setForm({ ...form, adminName: e.target.value })} placeholder="Nama admin" /></Field>
-              <Field label="Email"><Input type="email" value={form.adminEmail} onChange={(e) => setForm({ ...form, adminEmail: e.target.value })} placeholder="admin@kantor.id" /></Field>
-              <Field label="Password awal"><Input type="password" value={form.adminPassword} onChange={(e) => setForm({ ...form, adminPassword: e.target.value })} placeholder="Min. 8 karakter" /></Field>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button onClick={() => setModal(false)} className="btn-ghost !py-2 text-[13px]">Batal</button>
-              <button onClick={create} disabled={busy} className="btn-primary !py-2 text-[13px]">
-                {busy ? 'Menyimpan…' : 'Buat Kantor'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

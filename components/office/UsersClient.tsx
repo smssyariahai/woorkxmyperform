@@ -7,7 +7,7 @@ import { Card, CardTitle, Badge } from '@/components/ui/primitives';
 import { Field } from '@/components/ui/input';
 import { Input } from '@/components/ui/input';
 import { SearchInput, Pagination } from '@/components/ui/search';
-import { Plus, Pencil, Power, KeyRound, UserCog, ShieldCheck } from 'lucide-react';
+import { Plus, Pencil, Power, KeyRound, UserCog, ShieldCheck, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Member {
@@ -78,6 +78,19 @@ export function UsersClient({ perms, isSuperAdmin, currentUserId }: { perms: str
       load();
     } catch (e: any) {
       toast.error(e.message || 'Gagal mengubah status.');
+    }
+  }
+
+  async function deleteUser(m: Member) {
+    if (!confirm(`Hapus ${m.user.name} dari kantor ini?\n\nTindakan ini permanen — akunnya tidak lagi bisa mengakses kantor ini, dan data kepegawaian serta hak akses modulnya di kantor ini ikut terhapus.`)) return;
+    try {
+      const r = await fetch(`/api/admin/users/${m.id}`, { method: 'DELETE' });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.message);
+      toast.success(`${m.user.name} dihapus dari kantor.`);
+      load();
+    } catch (e: any) {
+      toast.error(e.message || 'Gagal menghapus pengguna.');
     }
   }
 
@@ -218,6 +231,15 @@ export function UsersClient({ perms, isSuperAdmin, currentUserId }: { perms: str
                         className={cn('rounded-btn p-2 transition-colors', m.status === 'ACTIVE' ? 'text-muted hover:bg-red-50 hover:text-danger' : 'text-muted hover:bg-emerald-50 hover:text-emerald-600')}
                       >
                         <Power className="h-4 w-4" />
+                      </button>
+                    )}
+                    {can('USERS_DELETE') && m.user.id !== currentUserId && (
+                      <button
+                        onClick={() => deleteUser(m)}
+                        title="Hapus pengguna"
+                        className="rounded-btn p-2 text-muted hover:bg-red-50 hover:text-danger"
+                      >
+                        <Trash2 className="h-4 w-4" />
                       </button>
                     )}
                   </span>

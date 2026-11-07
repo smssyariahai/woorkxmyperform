@@ -4,6 +4,7 @@ import { apiOk, apiErr } from '@/lib/utils';
 import { audit, getClientIp } from '@/lib/audit';
 import { hashPassword } from '@/lib/password';
 import { validateUserDetailInput, buildUserDetailOps } from '@/lib/user-detail';
+import { checkUserQuota } from '@/lib/subscription';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,6 +61,8 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const ctx = await requirePermission('USERS_CREATE', req);
+    // Kuota karyawan langganan (Sistem Modular).
+    await checkUserQuota(ctx.organizationId);
     const body = await req.json();
     const name = String(body?.name || '').trim();
     const email = String(body?.email || '').toLowerCase().trim();

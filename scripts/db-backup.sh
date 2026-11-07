@@ -10,9 +10,12 @@ DATE=$(date +%Y-%m-%d)
 OUT="$DB_DIR/woork_saas-$DATE.sql.gz"
 LATEST="$DB_DIR/woork_saas-latest.sql.gz"
 
-# --- 1. Pastikan pg_dump tersedia (VM replacement menghapus /usr/bin) ---
+# NOTE 2026-11-07: `command -v pg_dump` saja TIDAK cukup — /usr/bin/pg_dump
+# adalah pg_wrapper; setelah VM replacement, client asli hilang tapi wrapper
+# tetap ada sehingga cek lama lolos padahal pg_dump gagal jalan. Verifikasi
+# binary benar-benar bisa dieksekusi.
 ensure_pg_dump() {
-  command -v pg_dump >/dev/null 2>&1 && return 0
+  pg_dump --version >/dev/null 2>&1 && return 0
   echo "pg_dump hilang — instal ulang postgresql-client-18 via PGDG..." >&2
   if [ ! -f /etc/apt/sources.list.d/pgdg.list ]; then
     curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/postgresql.gpg \
@@ -23,7 +26,7 @@ ensure_pg_dump() {
   apt-get update -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/pgdg.list -o Dir::Etc::sourceparts=/dev/null -o APT::Get::List-Cleanup=0 -qq \
     && apt-get install -y -qq postgresql-client-18 \
     || return 1
-  command -v pg_dump >/dev/null 2>&1
+  pg_dump --version >/dev/null 2>&1
 }
 ensure_pg_dump || { echo "GAGAL: pg_dump tidak tersedia dan instalasi gagal." >&2; exit 1; }
 

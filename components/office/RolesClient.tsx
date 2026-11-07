@@ -136,16 +136,16 @@ export function RolesClient({ perms }: { perms: string[] }) {
       {can('ROLES_CREATE') && !editor && (
         <Card>
           <CardTitle><span className="inline-flex items-center gap-2"><Sparkles className="h-4 w-4 text-brand" /> Template Role Divisi</span></CardTitle>
-          <div className="mt-3 grid sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="mt-3 grid sm:grid-cols-2 lg:grid-cols-5 gap-4">
             {templates.map((t) => (
               <button
                 key={t.name}
                 onClick={() => startCreate(t)}
-                className="rounded-btn border border-line p-4 text-left hover:border-brand/50 hover:bg-brand-50/50 dark:hover:bg-brand-900/20 transition-colors"
+                className="rounded-btn border border-line p-5 text-left hover:border-brand/50 hover:bg-brand-50/50 dark:hover:bg-brand-900/20 transition-colors"
               >
                 <p className="text-[14px] font-bold text-ink">{t.name}</p>
-                <p className="text-[12px] text-muted mt-1 line-clamp-2">{t.description}</p>
-                <p className="text-[11.5px] text-brand mt-2 font-medium">{t.permissions.length} permission</p>
+                <p className="text-[12px] text-muted mt-2 leading-relaxed line-clamp-2">{t.description}</p>
+                <p className="text-[11.5px] text-brand mt-3 font-medium">{t.permissions.length} permission</p>
               </button>
             ))}
           </div>
@@ -205,16 +205,16 @@ export function RolesClient({ perms }: { perms: string[] }) {
           </div>
         </Card>
       ) : (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {roles.map((r) => (
-            <Card key={r.id} className="!p-5">
-              <div className="flex items-start justify-between gap-2">
-                <div>
+            <Card key={r.id} className="!p-6">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
                   <p className="text-[15px] font-bold text-ink inline-flex items-center gap-2">
                     {r.name}
                     {r.isSystem && <Badge tone="gray">Sistem</Badge>}
                   </p>
-                  <p className="text-[12.5px] text-muted mt-0.5">{r.description ?? '—'}</p>
+                  <p className="text-[12.5px] text-muted mt-1.5 leading-relaxed">{r.description ?? '—'}</p>
                 </div>
                 <span className="inline-flex gap-1 shrink-0">
                   {(can('ROLES_UPDATE') || can('PERMISSIONS_MANAGE')) && (
@@ -229,7 +229,7 @@ export function RolesClient({ perms }: { perms: string[] }) {
                   )}
                 </span>
               </div>
-              <div className="mt-3 flex items-center justify-between text-[12.5px] text-muted">
+              <div className="mt-4 flex items-center justify-between text-[12.5px] text-muted">
                 <span>{r.memberCount} pengguna</span>
                 <span>{r.permissions.length} permission</span>
               </div>

@@ -3,6 +3,7 @@ import { requirePermission } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { audit, getClientIp } from '@/lib/audit';
 import { AVAILABLE_MODULES } from '@/lib/modules';
+import { publishModuleAccess } from '@/lib/realtime';
 
 export const dynamic = 'force-dynamic';
 
@@ -82,6 +83,11 @@ export async function PATCH(req: Request) {
       where: { id: ctx.organizationId },
       data,
     });
+    // Bila modul tingkat kantor berubah: semua sesi di kantor ini refresh
+    // sidebar otomatis (menu yang dimatikan langsung hilang tanpa reload).
+    if (Array.isArray(body?.modules)) {
+      publishModuleAccess(ctx.organizationId, null);
+    }
     await audit({
       organizationId: ctx.organizationId,
       userId: ctx.userId,

@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
@@ -41,6 +41,16 @@ function LoginPageInner() {
     handleSubmit,
     formState: { errors, isSubmitting },
   } = useForm<LoginInput>({ resolver: zodResolver(loginSchema) });
+
+  // Login selalu mulai dengan semua seksi sidebar terlipat — hapus status
+  // lipat tersimpan dari sesi sebelumnya (kunci yang sama dipakai Sidebar).
+  useEffect(() => {
+    try {
+      sessionStorage.removeItem('woork-sidebar-sections');
+    } catch {
+      /* abaikan */
+    }
+  }, []);
 
   async function onSubmit(data: LoginInput) {
     setServerError('');

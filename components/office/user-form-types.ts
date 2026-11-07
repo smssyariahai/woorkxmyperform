@@ -77,7 +77,8 @@ export interface UserFormState {
   educations: EducationRow[];
   experiences: ExperienceRow[];
   customValues: Record<string, string>;
-  moduleAccess: Record<string, boolean>;
+  /** Hak akses per modul baru: 'READ' | 'WRITE' | 'NONE' (tanpa entri = WRITE). */
+  moduleAccess: Record<string, 'READ' | 'WRITE' | 'NONE'>;
 }
 
 export interface FormRefs {
@@ -86,6 +87,8 @@ export interface FormRefs {
   members: Array<{ id: string; name: string; email: string; jobTitle: string | null }>;
   customFields: Array<{ id: string; label: string; type: string; options: string | null; required: boolean }>;
   orgModules: string[];
+  /** modul baru yang dilanggan kantor (dashboard & setting selalu ada). */
+  subscribedModules?: string[];
 }
 
 export function emptyFormState(): UserFormState {
@@ -225,7 +228,14 @@ export function detailToFormState(detail: any): UserFormState {
     endYear: x.endYear != null ? String(x.endYear) : '',
   }));
   s.customValues = { ...(detail.customValues ?? {}) };
-  s.moduleAccess = { ...(detail.moduleAccess ?? {}) };
+  // moduleAccess: format baru Record<modul, 'READ'|'WRITE'|'NONE'>;
+  // terima juga format lama boolean (true = WRITE, false = NONE).
+  const ma: Record<string, 'READ' | 'WRITE' | 'NONE'> = {};
+  for (const [k, v] of Object.entries(detail.moduleAccess ?? {})) {
+    if (v === 'READ' || v === 'WRITE' || v === 'NONE') ma[k] = v;
+    else ma[k] = v === false ? 'NONE' : 'WRITE';
+  }
+  s.moduleAccess = ma;
   return s;
 }
 

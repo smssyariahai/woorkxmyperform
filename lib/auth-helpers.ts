@@ -2,10 +2,22 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/db';
 import { apiErr } from '@/lib/utils';
 import type { PermissionKey } from '@/lib/permissions';
-import { PERMISSION_CATALOG } from '@/lib/permissions';
-import { AVAILABLE_MODULES, MODULE_BY_CATALOG_MODULE, parseOrgModules, type ModuleKey } from '@/lib/modules';
+import { AVAILABLE_MODULES, type ModuleKey } from '@/lib/modules';
+import {
+  LEVEL_RANK,
+  PERMISSION_MODULE_LEVEL,
+  legacyKeyOfPermission,
+  type ModularKey,
+} from '@/lib/modular';
+import {
+  effectiveModuleLevel,
+  effectiveSubscriptionStatus,
+  getSubscription,
+  getUserModuleLevels,
+  isModuleSubscribed,
+} from '@/lib/subscription';
 import { audit, getClientIp } from '@/lib/audit';
-import { getTrialStatus, isWritePermission } from '@/lib/trial';
+import { isWritePermission } from '@/lib/trial';
 
 export interface AuthContext {
   userId: string;
@@ -94,24 +106,32 @@ export async function getUserPermissions(ctx: AuthContext): Promise<Set<string>>
 }
 
 /**
- * Pastikan modul paket aktif untuk kantor pemanggil (Fase 2 RBAC).
- * Administrator Pusat bypass. Daftar modul kosong / tidak diset = semua aktif
- * (grandfathering: tenant lama tanpa pembatasan tidak pernah terkunci).
+ * Pastikan modul paket aktif untuk kantor pemanggil (Sistem Modular).
+ * Administrator Pusat bypass. Tanpa langganan / tanpa pilihan modul =
+ * semua aktif (grandfathering: tenant lama tanpa pembatasan tidak terkunci).
+ * Modul non-billable (Dashboard, Setting, Administrator Pusat) selalu aktif.
  */
 export async function requireModule(ctx: AuthContext, moduleKey: ModuleKey): Promise<void> {
   if (ctx.isSuperAdmin) return;
-  const org = await prisma.organization.findUnique({
-    where: { id: ctx.organizationId },
-    select: { modules: true },
-  });
-  const active = parseOrgModules(org?.modules);
-  if (active.length > 0 && !active.includes(moduleKey)) {
+  const { LEGACY_TO_MODULAR } = await import('@/lib/modular');
+  const modularKey = LEGACY_TO_MODULAR[moduleKey] as ModularKey | undefined;
+  if (!modularKey) return;
+  const sub = await getSubscription(ctx.organizationId);
+  if (!isModuleSubscribed(sub, modularKey)) {
     const label = AVAILABLE_MODULES.find((m) => m.key === moduleKey)?.label ?? moduleKey;
-    throw apiErr(`Modul ${label} tidak aktif untuk kantor ini.`, 403);
+    throw apiErr(`Modul ${label} tidak aktif dalam langganan kantor ini.`, 403);
   }
 }
 
-const MODULE_OF_PERMISSION = new Map(PERMISSION_CATALOG.map((p) => [p.key, p.module]));
+/** Pastikan modul baru aktif untuk kantor pemanggil. */
+export async function requireModularModule(ctx: AuthContext, moduleKey: ModularKey): Promise<void> {
+  if (ctx.isSuperAdmin) return;
+  const sub = await getSubscription(ctx.organizationId);
+  if (!isModuleSubscribed(sub, moduleKey)) {
+    const label = (await import('@/lib/modular')).MODULAR_MODULE_MAP.get(moduleKey)?.label ?? moduleKey;
+    throw apiErr(`Modul ${label} tidak aktif dalam langganan kantor ini.`, 403);
+  }
+}
 
 /**
  * Inti pemeriksaan permission untuk sebuah AuthContext yang sudah
@@ -148,37 +168,49 @@ async function assertPermission(
     }).catch(() => {});
     throw apiErr('Anda tidak memiliki akses untuk tindakan ini.', 403);
   }
-  // Batasan modul paket: permission modul fitur ditolak bila modulnya nonaktif.
-  const catalogModule = MODULE_OF_PERMISSION.get(permission);
-  const moduleKey = catalogModule ? MODULE_BY_CATALOG_MODULE[catalogModule] : undefined;
-  if (moduleKey) await requireModule(ctx, moduleKey);
-  // Batasan modul per pengguna (Sidebar 4 — Hak Akses Modul):
-  // bila ada baris UserModuleAccess allowed=false untuk modul ini, tolak.
-  // Tanpa baris = ikut aturan kantor (perilaku lama tidak berubah).
-  if (moduleKey) {
-    const membership = await prisma.membership.findFirst({
-      where: { userId: ctx.userId, organizationId: ctx.organizationId },
-      select: { id: true },
-    });
-    if (membership) {
-      const access = await prisma.userModuleAccess.findUnique({
-        where: { membershipId_moduleKey: { membershipId: membership.id, moduleKey } },
-        select: { allowed: true },
-      });
-      if (access && !access.allowed) {
-        const label = AVAILABLE_MODULES.find((m) => m.key === moduleKey)?.label ?? moduleKey;
-        throw apiErr(`Modul ${label} tidak diaktifkan untuk akun Anda. Hubungi admin kantor.`, 403);
+  // Batasan langganan Sistem Modular:
+  // 1) Modul harus aktif dalam langganan kantor (modul berbayar saja).
+  // 2) Level akses pengguna: permission READ butuh >= READ, WRITE butuh WRITE.
+  //    Baris modul baru (mis. 'chat') berlaku se-modul; bila tidak ada,
+  //    baris kunci lama (mis. 'inbox') tetap dihormati per halaman.
+  //    Tanpa baris = ikut aturan kantor (WRITE bila modul aktif).
+  const permModule = PERMISSION_MODULE_LEVEL.get(permission);
+  if (permModule) {
+    const sub = await getSubscription(ctx.organizationId);
+    if (!isModuleSubscribed(sub, permModule.module)) {
+      const label =
+        (await import('@/lib/modular')).MODULAR_MODULE_MAP.get(permModule.module)?.label ??
+        permModule.module;
+      throw apiErr(`Modul ${label} tidak aktif dalam langganan kantor ini.`, 403);
+    }
+    const levels = await getUserModuleLevels(ctx.userId, ctx.organizationId);
+    const level = effectiveModuleLevel(levels, permModule.module, legacyKeyOfPermission(permission));
+    if (LEVEL_RANK[level] < LEVEL_RANK[permModule.level]) {
+      const label =
+        (await import('@/lib/modular')).MODULAR_MODULE_MAP.get(permModule.module)?.label ??
+        permModule.module;
+      throw apiErr(
+        level === 'NONE'
+          ? `Modul ${label} tidak diaktifkan untuk akun Anda. Hubungi admin kantor.`
+          : `Akses Anda ke modul ${label} hanya baca (Read). Tindakan ini butuh akses Write.`,
+        403
+      );
+    }
+    // 3) Langganan tidak aktif: semua API tulis ditolak (baca tetap boleh
+    //    agar pengguna bisa melihat halaman Langganan & Tagihan).
+    if (isWritePermission(permission)) {
+      const status = effectiveSubscriptionStatus(sub);
+      if (status !== 'ACTIVE') {
+        const msg =
+          status === 'PENDING_PAYMENT'
+            ? 'Langganan kantor ini menunggu pembayaran. Hubungi Administrator Pusat untuk mengaktifkan.'
+            : status === 'EXPIRED'
+              ? 'Masa langganan kantor telah berakhir. Perpanjang langganan untuk melanjutkan.'
+              : status === 'SUSPENDED'
+                ? 'Langganan kantor ini ditangguhkan. Hubungi Administrator Pusat.'
+                : 'Langganan kantor ini tidak aktif. Hubungi Administrator Pusat.';
+        throw apiErr(msg, 403);
       }
-    }
-  }
-  // Batasan trial: tulis diblokir bila trial habis; Bot nonaktif selama trial.
-  if (isWritePermission(permission)) {
-    const trial = await getTrialStatus(ctx.organizationId);
-    if (trial.readOnly) {
-      throw apiErr('Masa trial 14 hari telah berakhir. Upgrade paket untuk melanjutkan.', 403);
-    }
-    if (trial.isTrial && permission === 'BOT_MANAGE') {
-      throw apiErr('Fitur Bot tidak tersedia pada paket Trial. Upgrade untuk mengaktifkan.', 403);
     }
   }
 }
@@ -189,7 +221,7 @@ async function assertPermission(
  * Deny by default: hanya permission di database yang berlaku.
  * Fase 2: permission modul fitur juga dibatasi modul paket kantor.
  * opts.organizationId mengalihkan otorisasi ke organisasi tersebut
- * (modul gate + trial ikut memakai organisasi itu) — lihat AuthOptions.
+ * (modul gate + langganan ikut memakai organisasi itu) — lihat AuthOptions.
  */
 export async function requirePermission(
   permission: PermissionKey,
@@ -206,7 +238,7 @@ export async function requirePermission(
  * Memverifikasi hal yang sama seperti requireAuth + requirePermission,
  * tapi identitas user berasal dari nomor WhatsApp yang sudah dicocokkan
  * ke User (bukan dari cookie sesi): user ACTIVE + membership ACTIVE di
- * organisasi yang dimaksud + role punya permission + module gate + trial.
+ * organisasi yang dimaksud + role punya permission + module gate + langganan.
  * Pesan error disamakan dengan jalur sesi. Dipakai SEBELUM executeSign.
  */
 export async function requirePermissionForUser(

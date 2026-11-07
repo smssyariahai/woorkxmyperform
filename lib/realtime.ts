@@ -56,3 +56,13 @@ export function publishConversation(orgId: string, conversationId: string) {
 export function publishAgent(orgId: string, event: string, data: unknown) {
   broadcast(orgId, event, data);
 }
+
+/**
+ * Hak akses modul berubah — sidebar pengguna yang bersangkutan refresh
+ * otomatis tanpa reload manual (AppShell mendengarkan event ini).
+ * userId null = berlaku untuk semua pengguna di kantor itu (modul tingkat
+ * kantor / role berubah); userId terisi = hanya pengguna itu.
+ */
+export function publishModuleAccess(orgId: string, userId: string | null) {
+  broadcast(orgId, 'module:access', { userId });
+}

@@ -1,10 +1,10 @@
 import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/auth-helpers';
-import { getTrialStatus, countActiveMembers, TRIAL_MAX_TEAM_MEMBERS } from '@/lib/trial';
 import { apiOk, apiErr } from '@/lib/utils';
 import { audit, getClientIp } from '@/lib/audit';
 import { hashPassword } from '@/lib/password';
 import { z } from 'zod';
+import { checkUserQuota } from '@/lib/subscription';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,14 +19,8 @@ const createUserSchema = z.object({
 export async function POST(req: Request) {
   try {
     const ctx = await requirePermission('TEAM_MANAGE');
-    // Batasan trial: maks 2 anggota tim (termasuk owner)
-    const trial = await getTrialStatus(ctx.organizationId);
-    if (trial.isTrial) {
-      const members = await countActiveMembers(ctx.organizationId);
-      if (members >= TRIAL_MAX_TEAM_MEMBERS) {
-        return apiErr(`Paket Trial dibatasi ${TRIAL_MAX_TEAM_MEMBERS} anggota tim. Upgrade untuk menambah tim.`, 403);
-      }
-    }
+    // Kuota karyawan langganan (Sistem Modular menggantikan batas trial).
+    await checkUserQuota(ctx.organizationId);
     const body = await req.json();
     const parsed = createUserSchema.safeParse(body);
     if (!parsed.success) {

@@ -9,28 +9,16 @@ import { ArrowLeft, KeyRound, Crown } from 'lucide-react';
 import Link from 'next/link';
 import { cn } from '@/lib/utils';
 
-const MODULES = [
-  { key: 'inbox', label: 'Inbox' },
-  { key: 'crm', label: 'CRM' },
-  { key: 'hr', label: 'HR & Rekrutmen' },
-  { key: 'broadcast', label: 'Broadcast' },
-  { key: 'bot', label: 'Bot' },
-  { key: 'kantor', label: 'Kantor Virtual' },
-  { key: 'channels', label: 'Saluran' },
-];
-
 export function OfficeDetailClient({ id }: { id: string }) {
   const [members, setMembers] = useState<any[]>([]);
   const [officeName, setOfficeName] = useState('');
   const [isActive, setIsActive] = useState(true);
-  const [modules, setModules] = useState<string[]>([]);
   const [subdomain, setSubdomain] = useState('');
   const [description, setDescription] = useState('');
   const [saving, setSaving] = useState(false);
   const [resetFor, setResetFor] = useState<any>(null);
   const [newPw, setNewPw] = useState('');
-  const [plan, setPlan] = useState('FREE');
-  const [planSaving, setPlanSaving] = useState(false);
+  const [subscription, setSubscription] = useState<any>(null);
 
   const load = useCallback(async () => {
     const r = await fetch(`/api/super/offices/${id}/users`);
@@ -44,37 +32,12 @@ export function OfficeDetailClient({ id }: { id: string }) {
     const o = j2.success ? j2.data.find((x: any) => x.id === id) : null;
     if (o) {
       setIsActive(o.isActive);
-      setModules(o.modules);
       setSubdomain(o.subdomain ?? '');
+      setSubscription(o.subscription ?? null);
     }
-    const r3 = await fetch(`/api/super/offices/${id}/plan`);
-    const j3 = await r3.json();
-    if (j3.success && j3.data.subscription) setPlan(j3.data.subscription.plan);
-
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
-
-  async function changePlan(next: string) {
-    if (next === plan) return;
-    if (!confirm(`Ubah paket kantor ini ke ${next}?`)) return;
-    setPlanSaving(true);
-    try {
-      const r = await fetch('/api/billing', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ organizationId: id, plan: next }),
-      });
-      const j = await r.json();
-      if (!j.success) throw new Error(j.message);
-      setPlan(next);
-      toast.success(`Paket diubah ke ${next}.`);
-    } catch (e: any) {
-      toast.error(e.message || 'Gagal mengubah paket.');
-    } finally {
-      setPlanSaving(false);
-    }
-  }
 
   async function save() {
     if (!officeName.trim()) { toast.error('Nama kantor tidak boleh kosong.'); return; }
@@ -83,7 +46,7 @@ export function OfficeDetailClient({ id }: { id: string }) {
       const r = await fetch(`/api/super/offices/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: officeName.trim(), isActive, modules, subdomain: subdomain.trim() || null }),
+        body: JSON.stringify({ name: officeName.trim(), isActive, subdomain: subdomain.trim() || null }),
       });
       const j = await r.json();
       if (!j.success) throw new Error(j.message);
@@ -137,10 +100,6 @@ export function OfficeDetailClient({ id }: { id: string }) {
     }
   }
 
-  function toggleModule(key: string) {
-    setModules((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
-  }
-
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-[1200px] mx-auto space-y-5">
       <Link href="/admin/offices" className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink">
@@ -173,46 +132,24 @@ export function OfficeDetailClient({ id }: { id: string }) {
           </Field>
         </div>
         <div className="mt-4">
-          <p className="text-[13px] font-semibold text-ink mb-2">Modul yang tersedia</p>
-          <div className="flex flex-wrap gap-2">
-            {MODULES.map((m) => (
-              <button
-                key={m.key}
-                onClick={() => toggleModule(m.key)}
-                className={cn(
-                  'rounded-btn border px-3.5 py-2 text-[13px] font-medium transition-colors',
-                  modules.includes(m.key)
-                    ? 'border-brand bg-brand-50 text-brand-700 dark:bg-brand-900/30'
-                    : 'border-line text-muted hover:border-brand/40'
-                )}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="mt-4">
           <p className="text-[13px] font-semibold text-ink mb-2 flex items-center gap-1.5">
-            <Crown className="h-4 w-4 text-amber-500" /> Paket Langganan
+            <Crown className="h-4 w-4 text-amber-500" /> Langganan Modular
           </p>
-          <div className="flex flex-wrap gap-2">
-            {['FREE', 'STARTER', 'PROFESSIONAL', 'ENTERPRISE'].map((k) => (
-              <button
-                key={k}
-                onClick={() => changePlan(k)}
-                disabled={planSaving}
-                className={cn(
-                  'rounded-btn border px-3.5 py-2 text-[13px] font-medium transition-colors',
-                  plan === k
-                    ? 'border-brand bg-brand-50 text-brand-700 dark:bg-brand-900/30'
-                    : 'border-line text-muted hover:border-brand/40'
-                )}
-              >
-                {k}
-              </button>
-            ))}
-          </div>
-          <p className="mt-1.5 text-[12px] text-muted">Hanya Administrator Pusat yang dapat menentukan paket kantor.</p>
+          {subscription ? (
+            <div className="rounded-btn border border-line bg-canvas p-4 text-[13.5px] space-y-1.5">
+              <p className="flex justify-between gap-3"><span className="text-muted">Status</span><b>{subscription.status === 'ACTIVE' ? 'Aktif' : subscription.status === 'PENDING_PAYMENT' ? 'Menunggu Pembayaran' : subscription.status}</b></p>
+              <p className="flex justify-between gap-3"><span className="text-muted">Siklus</span><b>{subscription.billingCycle === 'YEARLY' ? 'Tahunan' : 'Bulanan'}</b></p>
+              <p className="flex justify-between gap-3"><span className="text-muted">Kuota karyawan</span><b>{subscription.userQuota} pengguna</b></p>
+              <p className="flex justify-between gap-3"><span className="text-muted">Periode</span><b>{subscription.startDate ? new Date(subscription.startDate).toLocaleDateString('id-ID') : '—'} – {subscription.endDate ? new Date(subscription.endDate).toLocaleDateString('id-ID') : '—'}</b></p>
+              <p className="flex justify-between gap-3"><span className="text-muted">Modul berbayar</span><b>{(subscription.modules ?? []).length > 0 ? subscription.modules.join(', ') : 'Tidak ada (hanya Dashboard & Setting)'}</b></p>
+              <p className="pt-1">
+                <Link href="/admin/invoices" className="font-medium text-brand hover:underline">Lihat Invoice kantor ini →</Link>
+              </p>
+            </div>
+          ) : (
+            <p className="text-[13px] text-muted">Kantor ini belum memiliki langganan modul.</p>
+          )}
+          <p className="mt-1.5 text-[12px] text-muted">Modul & masa langganan diatur lewat invoice — bukan dari halaman ini.</p>
         </div>
         <div className="mt-5 flex justify-end">
           <button onClick={save} disabled={saving} className="btn-primary !py-2 text-[13px]">

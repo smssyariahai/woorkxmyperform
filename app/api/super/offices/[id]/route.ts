@@ -47,10 +47,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       }
       }
     }
-    if (Array.isArray(body?.modules)) {
-      const valid: Set<string> = new Set(AVAILABLE_MODULES.map((m) => m.key));
-      data.modules = JSON.stringify([...new Set(body.modules)].filter((k) => valid.has(k as string)));
-    }
+    // Modul kantor diatur lewat langganan (SubscriptionModule), BUKAN lewat
+    // Organization.modules langsung — field `modules` diabaikan agar tidak
+    // merusak sinkronisasi langganan. Ubah modul via invoice/langganan baru.
 
     const updated = await prisma.organization.update({ where: { id: org.id }, data });
     await audit({

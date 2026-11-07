@@ -26,62 +26,47 @@ import {
   Settings2,
   Wallet,
   FileSignature,
+  Receipt,
+  Tag,
+  CreditCard,
+  User,
+  ChevronDown,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { signOut, useSession } from 'next-auth/react';
+import { MODULAR_MODULES, type ModularKey, type ModularPageDef, type ModuleAccessLevel } from '@/lib/modular';
 
-interface NavItem {
-  href: string;
-  label: string;
-  icon: any;
-  badge?: string;
-  /** permission yang dibutuhkan (salah satu). Kosong = selalu tampil. */
-  perms?: string[];
-  /** permission platform yang dibutuhkan (salah satu). Dipakai menu Administrator Pusat. */
-  platformPerms?: string[];
-  /** hanya Administrator Pusat (bukan Admin WOORK). */
-  superOnly?: boolean;
-  /** kunci modul paket (Fase 2): disembunyikan bila kantor membatasi modul dan kunci ini nonaktif. */
-  moduleKey?: string;
-}
-
-const NAV: NavItem[] = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/inbox', label: 'Inbox', icon: Inbox, badge: 'unread', perms: ['INBOX_VIEW'], moduleKey: 'inbox' },
-  { href: '/crm', label: 'CRM', icon: Users, perms: ['CRM_VIEW'], moduleKey: 'crm' },
-  { href: '/hr', label: 'HR', icon: Briefcase, perms: ['HR_VIEW'], moduleKey: 'hr' },
-  { href: '/esign', label: 'E-Sign', icon: FileSignature, perms: ['ESIGN_VIEW'], moduleKey: 'esign' },
-  { href: '/bot', label: 'Bot', icon: Bot, perms: ['BOT_MANAGE'], moduleKey: 'bot' },
-  { href: '/broadcast', label: 'Broadcast', icon: Megaphone, perms: ['BROADCAST_CREATE'], moduleKey: 'broadcast' },
-  { href: '/kantor', label: 'Kantor Virtual', icon: Building2, moduleKey: 'kantor' },
-  { href: '/channels', label: 'Saluran', icon: Plug, perms: ['SETTINGS_MANAGE'], moduleKey: 'channels' },
-  { href: '/audit', label: 'Audit', icon: ShieldCheck, perms: ['AUDIT_VIEW'] },
-];
-
-/** Menu Admin Kantor — tampil bila punya salah satu permission terkait. */
-const ADMIN_OFFICE: NavItem[] = [
-  { href: '/admin-kantor', label: 'Dashboard Kantor', icon: LayoutDashboard, perms: ['USERS_VIEW', 'ROLES_VIEW', 'DEPARTMENTS_VIEW', 'SETTINGS_MANAGE'] },
-  { href: '/admin-kantor/users', label: 'Pengguna', icon: Users, perms: ['USERS_VIEW'] },
-  { href: '/admin-kantor/roles', label: 'Role & Permission', icon: KeyRound, perms: ['ROLES_VIEW'] },
-  { href: '/admin-kantor/departments', label: 'Divisi', icon: Network, perms: ['DEPARTMENTS_VIEW'] },
-  { href: '/admin-kantor/office', label: 'Pengaturan Kantor', icon: Settings, perms: ['SETTINGS_MANAGE'] },
-];
-
-/** Menu Administrator Pusat. Item ber-platformPerms tampil untuk Admin WOORK
- *  yang memegang salah satu permission tersebut; superOnly hanya untuk super admin. */
-const SUPERADMIN: NavItem[] = [
-  { href: '/admin', label: 'Dashboard Pusat', icon: Crown, platformPerms: ['PLATFORM_TENANTS_VIEW', 'PLATFORM_MASTER_VIEW', 'PLATFORM_AUDIT_VIEW'] },
-  { href: '/admin/offices', label: 'Kantor', icon: Globe2, platformPerms: ['PLATFORM_TENANTS_VIEW', 'PLATFORM_TENANTS_MANAGE'] },
-  { href: '/admin/saldo-master', label: 'Saldo Master', icon: Wallet, platformPerms: ['PLATFORM_MASTER_VIEW', 'PLATFORM_MASTER_MANAGE'] },
-  { href: '/admin/audit', label: 'Audit Global', icon: ShieldCheck, platformPerms: ['PLATFORM_AUDIT_VIEW'] },
-  { href: '/admin/platform-admins', label: 'Admin WOORK', icon: KeyRound, superOnly: true },
-  { href: '/admin/pengaturan', label: 'Pengaturan Sistem', icon: Settings2, superOnly: true },
-];
-
-const BOTTOM: NavItem[] = [
-  { href: '/settings', label: 'Pengaturan', icon: Settings },
-  { href: '/settings/help', label: 'Bantuan', icon: LifeBuoy },
-];
+/** Ikon per halaman (kunci = href). */
+const ICONS: Record<string, any> = {
+  '/dashboard': LayoutDashboard,
+  '/inbox': Inbox,
+  '/crm': Users,
+  '/broadcast': Megaphone,
+  '/channels': Plug,
+  '/bot': Bot,
+  '/hr': Briefcase,
+  '/kantor': Building2,
+  '/admin-kantor/departments': Network,
+  '/esign': FileSignature,
+  '/audit': ShieldCheck,
+  '/admin-kantor': LayoutDashboard,
+  '/admin-kantor/users': Users,
+  '/admin-kantor/roles': KeyRound,
+  '/admin-kantor/office': Settings,
+  '/settings': Settings,
+  '/settings/profile': User,
+  '/settings/team': Users,
+  '/settings/help': LifeBuoy,
+  '/upgrade': CreditCard,
+  '/admin': Crown,
+  '/admin/offices': Globe2,
+  '/admin/invoices': Receipt,
+  '/admin/modul': Tag,
+  '/admin/saldo-master': Wallet,
+  '/admin/audit': ShieldCheck,
+  '/admin/platform-admins': KeyRound,
+  '/admin/pengaturan': Settings2,
+};
 
 export interface MembershipInfo {
   organizationId: string;
@@ -99,7 +84,8 @@ export function Sidebar({
   isSuperAdmin,
   permissions,
   platformPermissions,
-  orgModules,
+  activeModules,
+  moduleLevels,
   memberships,
   unread,
   collapsed,
@@ -113,7 +99,10 @@ export function Sidebar({
   isSuperAdmin: boolean;
   permissions: string[];
   platformPermissions: string[];
-  orgModules: string[];
+  /** modul yang aktif dalam langganan kantor (super admin = semua). */
+  activeModules: ModularKey[];
+  /** level akses per pengguna, kunci = kunci modul baru atau kunci lama. */
+  moduleLevels: Record<string, ModuleAccessLevel>;
   memberships: MembershipInfo[];
   unread: number;
   collapsed: boolean;
@@ -126,6 +115,61 @@ export function Sidebar({
   const [orgOpen, setOrgOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
 
+  /** Status lipat seksi modul — tersimpan di sessionStorage (per tab):
+   *  refresh mempertahankan seksi yang sedang terbuka, sedangkan login
+   *  selalu mulai terlipat (halaman login + tombol Keluar menghapus kunci ini). */
+  const SIDEBAR_SECTIONS_KEY = 'woork-sidebar-sections';
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(MODULAR_MODULES.map((m) => [m.key, true]))
+  );
+  const [sectionsHydrated, setSectionsHydrated] = useState(false);
+  const firstNav = useRef(true);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(SIDEBAR_SECTIONS_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw) as Record<string, boolean>;
+        setCollapsedSections((prev) => ({ ...prev, ...saved }));
+      }
+    } catch {
+      /* abaikan */
+    }
+    setSectionsHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!sectionsHydrated) return;
+    try {
+      sessionStorage.setItem(SIDEBAR_SECTIONS_KEY, JSON.stringify(collapsedSections));
+    } catch {
+      /* abaikan */
+    }
+  }, [collapsedSections, sectionsHydrated]);
+
+  /** Seksi halaman aktif otomatis terbuka saat PINDAH halaman — tapi tidak
+   *  pada muatan pertama (login), agar semua tetap terlipat dulu. */
+  useEffect(() => {
+    if (firstNav.current) {
+      firstNav.current = false;
+      return;
+    }
+    const active = MODULAR_MODULES.find((mod) =>
+      mod.pages.some((p) => pathname === p.href || pathname.startsWith(p.href + '/'))
+    );
+    if (active) {
+      setCollapsedSections((prev) => {
+        if (!prev[active.key]) return prev;
+        const next = { ...prev };
+        delete next[active.key];
+        return next;
+      });
+    }
+  }, [pathname]);
+
+  const toggleSection = (key: ModularKey) =>
+    setCollapsedSections((prev) => ({ ...prev, [key]: !prev[key] }));
+
   const can = (perms?: string[]) => {
     if (!perms || perms.length === 0) return true;
     if (isSuperAdmin) return true;
@@ -133,19 +177,26 @@ export function Sidebar({
     return perms.some((p) => set.has(p));
   };
 
-  /** Visibilitas satu item menu: superOnly > platformPerms > perms tenant + modul paket. */
-  const canItem = (n: NavItem) => {
-    if (n.superOnly) return isSuperAdmin;
-    // Modul paket: daftar kosong = semua aktif; super admin bypass.
-    if (n.moduleKey && !isSuperAdmin && orgModules.length > 0 && !orgModules.includes(n.moduleKey)) {
-      return false;
-    }
-    if (n.platformPerms) {
+  /** Level efektif satu halaman: baris modul baru diutamakan, lalu baris kunci lama. */
+  const pageLevel = (page: ModularPageDef, moduleKey: ModularKey): ModuleAccessLevel => {
+    if (moduleLevels[moduleKey]) return moduleLevels[moduleKey];
+    if (page.legacyKey && moduleLevels[page.legacyKey]) return moduleLevels[page.legacyKey];
+    return 'WRITE';
+  };
+
+  /** Visibilitas satu item menu: langganan > level pengguna > platformPerms > perms tenant. */
+  const canItem = (page: ModularPageDef, moduleKey: ModularKey) => {
+    if (page.superOnly) return isSuperAdmin;
+    // Modul langganan: seksi hanya tampil bila modul aktif; super admin bypass.
+    if (!isSuperAdmin && !activeModules.includes(moduleKey)) return false;
+    // Hak akses modul per pengguna: NONE = sembunyikan; super admin bypass.
+    if (!isSuperAdmin && pageLevel(page, moduleKey) === 'NONE') return false;
+    if (page.platformPerms) {
       if (isSuperAdmin) return true;
       const set = new Set(platformPermissions);
-      return n.platformPerms.some((p) => set.has(p));
+      return page.platformPerms.some((p) => set.has(p));
     }
-    return can(n.perms);
+    return can(page.perms);
   };
 
   async function switchOrg(targetOrgId: string) {
@@ -172,21 +223,22 @@ export function Sidebar({
 
   // Satu item aktif saja: href terpanjang yang cocok dengan pathname.
   // Mencegah induk (mis. /admin-kantor) ikut biru saat anaknya (/admin-kantor/departments) dibuka.
-  const isActive = (href: string, all: NavItem[]) => {
+  const isActive = (href: string, all: ModularPageDef[]) => {
     const match = (h: string) => pathname === h || pathname.startsWith(h + '/');
     if (!match(href)) return false;
     return !all.some((o) => o.href !== href && o.href.length > href.length && match(o.href));
   };
 
-  const item = (n: NavItem, all: NavItem[]) => {
-    if (!canItem(n)) return null;
-    const active = isActive(n.href, all);
+  const item = (page: ModularPageDef, moduleKey: ModularKey, all: ModularPageDef[]) => {
+    if (!canItem(page, moduleKey)) return null;
+    const active = isActive(page.href, all);
+    const Icon = ICONS[page.href] ?? LayoutDashboard;
     return (
       <Link
-        key={n.href}
-        href={n.href}
+        key={page.href}
+        href={page.href}
         onClick={onNavigate}
-        title={n.label}
+        title={page.label}
         className={cn(
           'flex items-center gap-3 rounded-btn px-3 py-2.5 text-[13.5px] font-medium transition-colors',
           active
@@ -195,26 +247,36 @@ export function Sidebar({
           collapsed && 'justify-center px-0'
         )}
       >
-        <n.icon className="h-[18px] w-[18px] shrink-0" />
-        {!collapsed && <span className="flex-1">{n.label}</span>}
-        {!collapsed && n.badge === 'unread' && unread > 0 && (
+        <Icon className="h-[18px] w-[18px] shrink-0" />
+        {!collapsed && <span className="flex-1">{page.label}</span>}
+        {!collapsed && page.href === '/inbox' && unread > 0 && (
           <span className="badge-red !px-2">{unread > 99 ? '99+' : unread}</span>
         )}
       </Link>
     );
   };
 
-  const section = (title: string, items: NavItem[]) => {
-    const visible = items.filter((n) => canItem(n));
+  const section = (moduleKey: ModularKey, title: string, pages: ModularPageDef[]) => {
+    const visible = pages.filter((p) => canItem(p, moduleKey));
     if (visible.length === 0) return null;
+    // Mode ikon (sidebar menciut): seksi selalu terbuka, judul disembunyikan seperti sebelumnya.
+    const isCollapsed = !collapsed && !!collapsedSections[moduleKey];
     return (
-      <div className="pt-1">
+      <div className="pt-1" key={moduleKey}>
         {!collapsed && (
-          <p className="px-3 pb-1.5 text-[10.5px] font-bold uppercase tracking-widest text-muted/70">
-            {title}
-          </p>
+          <button
+            type="button"
+            onClick={() => toggleSection(moduleKey)}
+            aria-expanded={!isCollapsed}
+            className="flex w-full items-center justify-between rounded-md px-3 pb-1.5 text-[10.5px] font-bold uppercase tracking-widest text-muted/70 hover:text-muted"
+          >
+            <span>{title}</span>
+            <ChevronDown
+              className={cn('h-3.5 w-3.5 shrink-0 transition-transform', isCollapsed && '-rotate-90')}
+            />
+          </button>
         )}
-        <div className="space-y-1">{visible.map((n) => item(n, visible))}</div>
+        {!isCollapsed && <div className="space-y-1">{visible.map((p) => item(p, moduleKey, visible))}</div>}
       </div>
     );
   };
@@ -294,14 +356,8 @@ export function Sidebar({
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-1" aria-label="Navigasi utama">
-        {NAV.map((n) => item(n, NAV))}
-        {section('Admin Kantor', ADMIN_OFFICE)}
-        {section('Administrator Pusat', SUPERADMIN)}
+        {MODULAR_MODULES.map((mod) => section(mod.key, mod.label, mod.pages))}
       </nav>
-
-      <div className="px-3 pb-2 space-y-1 border-t border-line pt-3">
-        {BOTTOM.map((n) => item(n, BOTTOM))}
-      </div>
 
       <div className="p-3 relative">
         <button
@@ -332,7 +388,14 @@ export function Sidebar({
                 <Settings className="h-4 w-4" /> Profil saya
               </Link>
               <button
-                onClick={() => signOut({ callbackUrl: '/login' })}
+                onClick={() => {
+                  try {
+                    sessionStorage.removeItem(SIDEBAR_SECTIONS_KEY);
+                  } catch {
+                    /* abaikan */
+                  }
+                  signOut({ callbackUrl: '/login' });
+                }}
                 className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-[13px] text-danger hover:bg-red-50 dark:hover:bg-red-900/20"
               >
                 <LogOut className="h-4 w-4" /> Keluar

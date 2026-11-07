@@ -8,7 +8,7 @@ import { ChevronDown, Plus, Trash2, Upload, FileText, X } from 'lucide-react';
 import { Card } from '@/components/ui/primitives';
 import { Field, Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import { AVAILABLE_MODULES } from '@/lib/modules';
+import { MODULAR_MODULES, MODULAR_TO_LEGACY } from '@/lib/modular';
 import {
   BLOOD_TYPES,
   CUSTOM_FIELD_TYPES,
@@ -840,26 +840,53 @@ export function ModuleAccessSection({
   open: boolean;
   onToggle: () => void;
 }) {
-  const orgActive = (key: string) => refs.orgModules.length === 0 || refs.orgModules.includes(key);
+  // Modul yang bisa diatur: modul baru yang dilanggan kantor (fallback ke
+  // daftar lama bila refs belum membawa subscribedModules).
+  const tenantModules = MODULAR_MODULES.filter((m) => m.key !== 'pusat');
+  const orgActive = (key: string) => {
+    if (refs.subscribedModules) return refs.subscribedModules.includes(key);
+    if (key === 'dashboard' || key === 'setting') return true;
+    const legacy = MODULAR_TO_LEGACY[key as keyof typeof MODULAR_TO_LEGACY] ?? [];
+    return refs.orgModules.length === 0 || legacy.some((l) => refs.orgModules.includes(l));
+  };
+  const levelLabel: Record<string, string> = {
+    WRITE: 'Write — kelola penuh',
+    READ: 'Read — hanya melihat',
+    NONE: 'Tidak ada akses',
+  };
   return (
-    <Accordion title="Hak Akses Modul" subtitle="Modul yang boleh dibuka pengguna ini. Tanpa centang = ikut aturan kantor." open={open} onToggle={onToggle}>
+    <Accordion title="Hak Akses Modul" subtitle="Atur tiap modul: Read (hanya melihat) atau Write (kelola penuh). Tanpa pilihan = Write." open={open} onToggle={onToggle}>
       <div className="space-y-3">
         <p className="text-[12.5px] text-muted leading-relaxed">
-          Hak akses ini <b className="text-ink">benar-benar ditegakkan</b>: bila sebuah modul dimatikan untuk pengguna ini, semua API modul
-          itu menolak permintaannya (403) meski role-nya mengizinkan. Modul yang nonaktif di tingkat kantor tidak bisa diaktifkan per pengguna.
+          Hak akses ini <b className="text-ink">benar-benar ditegakkan</b>: pengguna dengan akses Read
+          tidak bisa melakukan perubahan di modul itu (API menolak, 403), dan tanpa akses
+          menunya disembunyikan. Modul yang tidak dilanggan kantor tidak bisa diaktifkan per pengguna.
         </p>
-        {AVAILABLE_MODULES.map((m) => {
+        {tenantModules.map((m) => {
           const active = orgActive(m.key);
-          const allowed = s.moduleAccess[m.key] !== false;
+          const level = (s.moduleAccess[m.key] ?? 'WRITE') as 'READ' | 'WRITE' | 'NONE';
           return (
             <div key={m.key} className="flex items-center gap-3 rounded-btn border border-slate-200 px-4 py-3">
               <div className="min-w-0 flex-1">
                 <span className="block text-[14px] font-medium text-ink">{m.label}</span>
                 <span className="block text-[12px] text-muted">
-                  {active ? (allowed ? 'Aktif untuk pengguna ini.' : 'Dimatikan untuk pengguna ini.') : 'Nonaktif di tingkat kantor.'}
+                  {m.pages.map((p) => p.label).join(', ')}
+                  {!active ? ' — tidak dilanggan kantor ini.' : level === 'WRITE' ? ' — kelola penuh.' : level === 'READ' ? ' — hanya melihat.' : ' — tidak bisa dibuka.'}
                 </span>
               </div>
-              <Switch checked={allowed && active} disabled={!active} onChange={(v) => update({ moduleAccess: { ...s.moduleAccess, [m.key]: v } })} />
+              <select
+                value={level}
+                disabled={!active}
+                onChange={(e) =>
+                  update({ moduleAccess: { ...s.moduleAccess, [m.key]: e.target.value as 'READ' | 'WRITE' | 'NONE' } })
+                }
+                className="input w-[190px] !py-2 text-[13px]"
+                aria-label={`Hak akses modul ${m.label}`}
+              >
+                <option value="WRITE">{levelLabel.WRITE}</option>
+                <option value="READ">{levelLabel.READ}</option>
+                <option value="NONE">{levelLabel.NONE}</option>
+              </select>
             </div>
           );
         })}

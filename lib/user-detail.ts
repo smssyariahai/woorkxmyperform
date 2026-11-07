@@ -4,7 +4,9 @@
 
 import { prisma } from '@/lib/db';
 import { apiErr } from '@/lib/utils';
-import { AVAILABLE_MODULES, parseOrgModules, type ModuleKey } from '@/lib/modules';
+import { parseOrgModules } from '@/lib/modules';
+import { LEGACY_TO_MODULAR, MODULAR_MODULES, type ModularKey, type ModuleAccessLevel } from '@/lib/modular';
+import { getSubscription, moduleLevelFromLegacy, subscribedBillableModules } from '@/lib/subscription';
 import {
   BLOOD_TYPES,
   FORMAL_DEGREES,
@@ -14,8 +16,6 @@ import {
   isCustomFieldType,
   parseFieldOptions,
 } from '@/lib/user-profile';
-
-const MODULE_KEYS = AVAILABLE_MODULES.map((m) => m.key) as ModuleKey[];
 
 function str(v: unknown): string | null {
   if (v === undefined || v === null) return null;
@@ -87,7 +87,8 @@ export interface NormalizedDetail {
   }>;
   experiences: Array<{ id?: string; companyName: string; position: string; startYear: number | null; endYear: number | null }>;
   customValues: Array<{ fieldDefId: string; value: string }>;
-  moduleAccess: Array<{ moduleKey: string; allowed: boolean }>;
+  /** Hak akses per modul baru (chat | hris | audit | dashboard | setting). */
+  moduleAccess: Array<{ moduleKey: string; access: ModuleAccessLevel }>;
 }
 
 function bad(msg: string): never {
@@ -298,12 +299,29 @@ export async function validateUserDetailInput(
     if (!defById.has(key)) bad('Field tambahan tidak dikenal.');
   }
 
-  // --- Hak akses modul ---
+  // --- Hak akses modul (Sistem Modular): per modul baru, level READ/WRITE/NONE.
+  // Terima juga format lama (boolean per kunci lama) demi kompatibilitas.
   const maRaw = body?.moduleAccess && typeof body.moduleAccess === 'object' ? body.moduleAccess : {};
-  const moduleAccess: Array<{ moduleKey: string; allowed: boolean }> = [];
+  const moduleAccess: Array<{ moduleKey: string; access: ModuleAccessLevel }> = [];
+  const MODULAR_KEYS = MODULAR_MODULES.map((m) => m.key);
   for (const key of Object.keys(maRaw)) {
-    if (!(MODULE_KEYS as readonly string[]).includes(key)) bad('Modul tidak dikenal.');
-    moduleAccess.push({ moduleKey: key, allowed: maRaw[key] === true || maRaw[key] === 'true' });
+    const modularKey = (MODULAR_KEYS as readonly string[]).includes(key)
+      ? key
+      : LEGACY_TO_MODULAR[key];
+    if (!modularKey) bad('Modul tidak dikenal.');
+    const raw = maRaw[key];
+    let access: ModuleAccessLevel;
+    if (raw === 'READ' || raw === 'WRITE' || raw === 'NONE') access = raw;
+    else if (raw === true || raw === 'true') access = 'WRITE';
+    else if (raw === false || raw === 'false') access = 'NONE';
+    else bad('Level akses modul tidak dikenal.');
+    // Bila kunci lama & kunci baru sama-sama dikirim, kunci baru menang.
+    const existing = moduleAccess.find((m) => m.moduleKey === modularKey);
+    if (existing) {
+      if ((MODULAR_KEYS as readonly string[]).includes(key)) existing.access = access;
+    } else {
+      moduleAccess.push({ moduleKey: modularKey, access });
+    }
   }
 
   return { profile, family, employment, educations, experiences, customValues, moduleAccess };
@@ -400,20 +418,33 @@ export function buildUserDetailOps(
     ops.push(prisma.userCustomValue.create({ data: { membershipId, fieldDefId: v.fieldDefId, value: v.value } }));
   });
 
-  // Hak akses modul — hanya simpan baris allowed=false (tanpa baris = ikut kantor).
+  // Hak akses modul — hanya simpan baris yang berbeda dari default kantor:
+  // READ -> baris allowed=true, access='READ'; NONE -> baris allowed=false,
+  // access='NONE'; WRITE -> tanpa baris (ikut aturan kantor). Menyimpan form
+  // mengganti baris kunci lama pengguna ini ke model modul baru.
   ops.push(prisma.userModuleAccess.deleteMany({ where: { membershipId } }));
-  d.moduleAccess
-    .filter((m) => !m.allowed)
-    .forEach((m) => {
-      ops.push(prisma.userModuleAccess.create({ data: { membershipId, moduleKey: m.moduleKey, allowed: false } }));
-    });
+  d.moduleAccess.forEach((m) => {
+    if (m.access === 'READ') {
+      ops.push(
+        prisma.userModuleAccess.create({
+          data: { membershipId, moduleKey: m.moduleKey, allowed: true, access: 'READ' },
+        })
+      );
+    } else if (m.access === 'NONE') {
+      ops.push(
+        prisma.userModuleAccess.create({
+          data: { membershipId, moduleKey: m.moduleKey, allowed: false, access: 'NONE' },
+        })
+      );
+    }
+  });
 
   return ops;
 }
 
 /** Referensi untuk form (role, divisi, anggota kantor, field custom, modul). */
 export async function getUserFormRefs(organizationId: string, excludeUserId?: string) {
-  const [roles, departments, members, customFields, org] = await Promise.all([
+  const [roles, departments, members, customFields, org, sub] = await Promise.all([
     prisma.role.findMany({ where: { organizationId }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
     prisma.department.findMany({ where: { organizationId }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
     prisma.membership.findMany({
@@ -428,13 +459,19 @@ export async function getUserFormRefs(organizationId: string, excludeUserId?: st
       orderBy: { sortOrder: 'asc' },
     }),
     prisma.organization.findUnique({ where: { id: organizationId }, select: { modules: true } }),
+    getSubscription(organizationId),
   ]);
+  const orgModules = parseOrgModules(org?.modules); // [] = semua aktif (jalur lama)
+  // Modul yang bisa diatur per pengguna: modul berbayar yang dilanggan +
+  // Dashboard & Setting (selalu ikut). Tanpa langganan = semua aktif.
+  const subscribedModules: string[] = ['dashboard', 'setting', ...subscribedBillableModules(sub)];
   return {
     roles,
     departments,
     members: members.map((m) => ({ id: m.user.id, name: m.user.name, email: m.user.email, jobTitle: m.jobTitle })),
     customFields,
-    orgModules: parseOrgModules(org?.modules), // [] = semua aktif
+    orgModules,
+    subscribedModules,
   };
 }
 
@@ -448,7 +485,7 @@ export async function getUserDetail(membershipId: string, organizationId: string
       department: { select: { id: true, name: true } },
       employment: true,
       customValues: { select: { fieldDefId: true, value: true } },
-      moduleAccess: { select: { moduleKey: true, allowed: true } },
+      moduleAccess: { select: { moduleKey: true, allowed: true, access: true } },
     },
   });
   if (!membership) return null;
@@ -459,9 +496,17 @@ export async function getUserDetail(membershipId: string, organizationId: string
     prisma.userWorkExperience.findMany({ where: { userId: membership.userId }, orderBy: { sortOrder: 'asc' } }),
   ]);
   const refs = await getUserFormRefs(organizationId, membership.userId);
-  const denied = new Set(membership.moduleAccess.filter((a) => !a.allowed).map((a) => a.moduleKey));
-  const moduleAccess: Record<string, boolean> = {};
-  for (const m of AVAILABLE_MODULES) moduleAccess[m.key] = !denied.has(m.key);
+  // Level per modul baru: baris kunci baru diutamakan; bila tidak ada,
+  // diturunkan dari baris kunci lama (semua anak dimatikan = NONE).
+  const levels: Record<string, ModuleAccessLevel> = {};
+  for (const r of membership.moduleAccess) {
+    levels[r.moduleKey] = !r.allowed ? 'NONE' : r.access === 'READ' ? 'READ' : 'WRITE';
+  }
+  const moduleAccess: Record<string, ModuleAccessLevel> = {};
+  for (const m of MODULAR_MODULES) {
+    if (m.key === 'pusat') continue;
+    moduleAccess[m.key] = moduleLevelFromLegacy(levels, m.key as ModularKey);
+  }
   const customValues: Record<string, string> = {};
   for (const v of membership.customValues) customValues[v.fieldDefId] = v.value ?? '';
   return {

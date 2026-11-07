@@ -65,6 +65,7 @@ model Organization {
   roles              Role[]
   sessions           Session[]
   subscription       Subscription?
+  invoices           Invoice[]
   tags               Tag[]
   topUpRequests      TopUpRequest[]
 
@@ -454,8 +455,9 @@ model UserCustomValue {
 model UserModuleAccess {
   id           String     @id @default(cuid())
   membershipId String
-  moduleKey    String // inbox | crm | hr | broadcast | bot | kantor | channels | esign
+  moduleKey    String // kunci modul baru (chat | hris | audit | dashboard | setting) atau kunci lama (inbox | crm | hr | ...)
   allowed      Boolean    @default(true)
+  access       String     @default("WRITE") // READ | WRITE | NONE (baris lama allowed=false = NONE)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
   membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
@@ -899,10 +901,81 @@ model Subscription {
   id               String       @id @default(cuid())
   organizationId   String       @unique
   plan             String       @default("FREE")
-  status           String       @default("ACTIVE")
+  status           String       @default("ACTIVE") // PENDING_PAYMENT | ACTIVE | EXPIRED | SUSPENDED | CANCELLED
   currentPeriodEnd DateTime?
   trialEndsAt      DateTime?
+  // --- Sistem Modular (2026-11-07): langganan per modul + kuota karyawan ---
+  billingCycle     String       @default("MONTHLY") // MONTHLY | YEARLY
+  userQuota        Int          @default(0) // 0 = tanpa batas (grandfathering data lama)
+  startDate        DateTime?
+  endDate          DateTime?
   organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  modules          SubscriptionModule[]
+  invoices         Invoice[]
+
+  @@index([status])
+}
+
+/// Harga langganan per modul berbayar (per user). Diubah Administrator Pusat.
+model ModulePrice {
+  moduleKey      String   @id // chat | hris | audit
+  monthlyPerUser Int
+  yearlyPerUser  Int
+  currency       String   @default("IDR")
+  isActive       Boolean  @default(true)
+  updatedAt      DateTime @updatedAt
+}
+
+/// Modul yang diambil satu langganan + snapshot harga saat dibuat.
+model SubscriptionModule {
+  id                   String       @id @default(cuid())
+  subscriptionId       String
+  moduleKey            String // chat | hris | audit
+  pricePerUserSnapshot Int
+  status               String       @default("ACTIVE") // ACTIVE | INACTIVE
+  createdAt            DateTime     @default(now())
+  subscription         Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@unique([subscriptionId, moduleKey])
+  @@index([subscriptionId])
+}
+
+/// Tagihan langganan (dibayar manual, dikonfirmasi Administrator Pusat).
+model Invoice {
+  id             String       @id @default(cuid())
+  organizationId String
+  subscriptionId String?
+  number         String       @unique // INV/YYYY/MM/NNN
+  status         String       @default("PENDING") // PENDING | PAID | OVERDUE | CANCELLED
+  billingCycle   String       @default("MONTHLY")
+  periodStart    DateTime
+  periodEnd      DateTime
+  subtotal       Int
+  total          Int
+  dueDate        DateTime
+  paidAt         DateTime?
+  paidNote       String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  subscription   Subscription? @relation(fields: [subscriptionId], references: [id])
+  items          InvoiceItem[]
+
+  @@index([organizationId])
+  @@index([status])
+}
+
+model InvoiceItem {
+  id          String  @id @default(cuid())
+  invoiceId   String
+  moduleKey   String?
+  description String
+  quantity    Int
+  unitPrice   Int
+  amount      Int
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
 }
 
 model ReplyTemplate {

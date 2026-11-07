@@ -10,6 +10,19 @@ import { audit } from './audit';
 import { slugify } from './utils';
 import { getSystemSettings, verifyTurnstile } from './system-settings';
 import { trialEndsAtFromNow } from './trial';
+import { getSubscription } from './subscription';
+
+/**
+ * Langganan kantor yang statusnya PENDING_PAYMENT / CANCELLED memblokir
+ * login anggotanya (kecuali Administrator Pusat). EXPIRED / SUSPENDED
+ * masih boleh login (baca saja; tulis diblokir di assertPermission).
+ */
+async function isLoginBlockedBySubscription(organizationId: string, isSuperAdmin: boolean): Promise<boolean> {
+  if (isSuperAdmin) return false;
+  const sub = await getSubscription(organizationId);
+  if (!sub) return false;
+  return sub.status === 'PENDING_PAYMENT' || sub.status === 'CANCELLED';
+}
 
 // Konfigurasi NextAuth dibuat per-request (async) agar kredensial Google OAuth
 // dapat dibaca dari SystemSetting (dikelola Administrator Pusat) tanpa restart.
@@ -46,6 +59,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
         if (!membership) return null;
         // Kantor dinonaktifkan: tolak login kecuali Administrator Pusat
         if (!membership.organization.isActive && !user.isSuperAdmin) return null;
+        // Langganan menunggu pembayaran / dibatalkan: tolak login (kecuali Pusat)
+        if (await isLoginBlockedBySubscription(membership.organizationId, user.isSuperAdmin)) return null;
         return {
           id: user.id,
           name: user.name,
@@ -116,6 +131,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
             });
             if (!membership || dbUser.status !== 'ACTIVE') return false;
             if (!membership.organization.isActive && !dbUser.isSuperAdmin) return false;
+            if (await isLoginBlockedBySubscription(membership.organizationId, dbUser.isSuperAdmin)) return false;
             (user as any).organizationId = membership.organizationId;
             (user as any).organizationName = membership.organization.name;
             (user as any).role = membership.role.name;
@@ -136,6 +152,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
             include: { organization: true, role: true },
           });
           if (m && (m.organization.isActive || (token as any).isSuperAdmin)) {
+            // Jangan pindah ke kantor yang langganannya menunggu pembayaran.
+            if (await isLoginBlockedBySubscription(targetOrg, (token as any).isSuperAdmin === true)) {
+              return token;
+            }
             token.organizationId = m.organizationId;
             token.organizationName = m.organization.name;
             token.role = m.role.name;

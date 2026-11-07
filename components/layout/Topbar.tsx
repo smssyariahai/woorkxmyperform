@@ -103,7 +103,7 @@ export function Topbar({
         {collapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
       </button>
 
-      <div className="relative flex-1 max-w-xl" ref={boxRef}>
+      <div className="relative min-w-0 flex-1" ref={boxRef}>
         <SearchInput
           placeholder="Cari pelanggan, percakapan…"
           onChange={setQ}
@@ -155,8 +155,6 @@ export function Topbar({
           </div>
         )}
       </div>
-
-      <div className="flex-1" />
 
       <button className="btn-ghost !px-2" onClick={toggleDark} aria-label="Mode gelap/terang" title="Mode gelap/terang">
         {dark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}

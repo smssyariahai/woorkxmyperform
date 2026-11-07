@@ -27,11 +27,21 @@ interface Invitation {
   role: { name: string };
 }
 
+interface RoleItem {
+  id: string;
+  name: string;
+  description: string | null;
+  isSystem: boolean;
+  memberCount: number | null;
+  permissions: string[];
+}
+
 const ROLES = ['ADMIN', 'SUPERVISOR', 'AGENT', 'VIEWER'];
 
 export function TeamClient({ selfId }: { selfId: string }) {
   const [members, setMembers] = useState<Member[]>([]);
   const [invites, setInvites] = useState<Invitation[]>([]);
+  const [roles, setRoles] = useState<RoleItem[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -63,7 +73,26 @@ export function TeamClient({ selfId }: { selfId: string }) {
     } finally {
       setLoading(false);
     }
+    // Role dinamis dari database (seperti Anggota Workspace) — bila API tidak
+    // bisa diakses, tampilkan daftar statis sebagai fallback.
+    try {
+      const rr = await fetch('/api/admin/roles').then((r) => r.json()).catch(() => null);
+      if (rr?.success && Array.isArray(rr.data)) setRoles(rr.data);
+      else setRoles(null);
+    } catch {
+      setRoles(null);
+    }
   }, []);
+
+  /** Role yang ditampilkan: data asli kantor bila ada, fallback statis bila tidak. */
+  const displayRoles: RoleItem[] = roles ?? Object.entries(ROLE_DESCRIPTIONS).map(([name, description]) => ({
+    id: name,
+    name,
+    description,
+    isSystem: true,
+    memberCount: null,
+    permissions: [],
+  }));
 
   useEffect(() => {
     load();
@@ -306,16 +335,32 @@ export function TeamClient({ selfId }: { selfId: string }) {
             </div>
           )}
 
-          <div className="card">
-            <CardTitle className="mb-3">Role & Permission</CardTitle>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {Object.entries(ROLE_DESCRIPTIONS).map(([r, d]) => (
-                <div key={r} className="rounded-xl border border-line p-3.5">
-                  <Badge tone={r === 'OWNER' ? 'blue' : r === 'VIEWER' ? 'gray' : 'green'}>{r}</Badge>
-                  <p className="mt-2 text-[12.5px] text-muted">{d}</p>
-                </div>
-              ))}
+          <div className="card !p-0 overflow-hidden">
+            <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-line">
+              <CardTitle>Role & Permission</CardTitle>
+              <a href="/admin-kantor/roles" className="text-[13px] font-medium text-brand hover:underline">
+                Kelola
+              </a>
             </div>
+            {displayRoles.map((r) => (
+              <div
+                key={r.id}
+                className="flex flex-wrap items-center gap-3 px-5 py-3.5 border-b border-line/60 last:border-0"
+              >
+                <Badge tone={r.name === 'OWNER' ? 'blue' : r.name === 'VIEWER' ? 'gray' : 'green'}>
+                  {r.name}
+                </Badge>
+                <p className="flex-1 min-w-[180px] text-[13.5px] leading-relaxed text-ink/80">
+                  {r.description ?? ROLE_DESCRIPTIONS[r.name] ?? '—'}
+                  {r.isSystem && <span className="ml-2 text-[11.5px] text-muted">Sistem</span>}
+                </p>
+                {r.memberCount !== null && (
+                  <span className="text-[12.5px] text-muted whitespace-nowrap">
+                    {r.memberCount} pengguna · {r.permissions.length} permission
+                  </span>
+                )}
+              </div>
+            ))}
           </div>
         </>
       )}

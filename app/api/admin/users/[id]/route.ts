@@ -3,6 +3,7 @@ import { requirePermission, getUserPermissions, assertCanGrant } from '@/lib/aut
 import { apiOk, apiErr } from '@/lib/utils';
 import { audit, getClientIp } from '@/lib/audit';
 import { getUserDetail, validateUserDetailInput, buildUserDetailOps } from '@/lib/user-detail';
+import { publishModuleAccess } from '@/lib/realtime';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +20,55 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   }
 }
 
+/**
+ * DELETE /api/admin/users/:id — hapus pengguna dari kantor ini.
+ * Menghapus Membership (data kepegawaian, custom field & hak akses modul di
+ * kantor ini ikut terhapus via Cascade); akun User-nya sendiri tetap ada
+ * bila ia anggota kantor lain. Pengaman: bukan diri sendiri, bukan
+ * Administrator Pusat (kecuali oleh sesama Administrator Pusat), hanya
+ * OWNER yang boleh menghapus OWNER lain, dan kantor harus menyisakan
+ * minimal 1 OWNER aktif.
+ */
+export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+  try {
+    const ctx = await requirePermission('USERS_DELETE', req);
+    const membership = await prisma.membership.findFirst({
+      where: { id: params.id, organizationId: ctx.organizationId },
+      include: { user: true, role: true },
+    });
+    if (!membership) return apiErr('Pengguna tidak ditemukan.', 404);
+    if (membership.userId === ctx.userId) return apiErr('Tidak dapat menghapus akun sendiri.', 409);
+    if (membership.user.isSuperAdmin && !ctx.isSuperAdmin) {
+      return apiErr('Hanya Administrator Pusat yang dapat menghapus akun Administrator Pusat.', 403);
+    }
+    if (membership.role.name === 'OWNER' && ctx.role !== 'OWNER') {
+      return apiErr('Hanya owner yang dapat menghapus akun owner lain.', 403);
+    }
+    if (membership.role.name === 'OWNER') {
+      const ownerCount = await prisma.membership.count({
+        where: { organizationId: ctx.organizationId, role: { name: 'OWNER' }, status: 'ACTIVE' },
+      });
+      if (ownerCount <= 1) return apiErr('Kantor harus memiliki minimal 1 owner.', 409);
+    }
+    await prisma.membership.delete({ where: { id: membership.id } });
+
+    // Beri tahu sesi pengguna yang dihapus: sidebar-nya refresh otomatis.
+    publishModuleAccess(ctx.organizationId, membership.userId);
+
+    await audit({
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      action: 'DELETE_USER',
+      module: 'USERS',
+      description: `Menghapus pengguna ${membership.user.name} (${membership.user.email}) dari kantor`,
+      ipAddress: getClientIp(req),
+    });
+    return apiOk({ deleted: true });
+  } catch (e: any) {
+    if (e instanceof Response) return e;
+    return apiErr('Gagal menghapus pengguna.', 500);
+  }
+}
 /**
  * PATCH /api/admin/users/:id — edit data pengguna lengkap (halaman edit).
  * Body: name, phone, username?, status?, departmentId?, jobTitle?, roleId?
@@ -105,6 +155,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     ops.push(...buildUserDetailOps(detail, { userId: membership.userId, membershipId: membership.id }));
 
     await prisma.$transaction(ops);
+
+    // Beri tahu sesi pengguna yang diedit: sidebar-nya refresh otomatis
+    // (menu modul yang dimatikan langsung hilang tanpa reload manual).
+    publishModuleAccess(ctx.organizationId, membership.userId);
 
     await audit({
       organizationId: ctx.organizationId,
