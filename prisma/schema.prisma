@@ -556,6 +556,10 @@ model Customer {
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
   waLid          String?
+  // Foto profil WA (disajikan via /api/customers/photo); null bila belum ada / privasi kontak menutup.
+  photoUrl       String?
+  // Terakhir kali foto profil WA dicek (berhasil maupun gagal) — dipakai untuk jeda refresh 7 hari.
+  photoCheckedAt DateTime?
   activities     Activity[]
   recipients     CampaignRecipient[]
   conversations  Conversation[]

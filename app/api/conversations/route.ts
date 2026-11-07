@@ -36,7 +36,7 @@ export async function GET(req: Request) {
       include: {
         customer: {
           select: {
-            id: true, name: true, phone: true, stage: true, unreadCount: true,
+            id: true, name: true, phone: true, photoUrl: true, stage: true, unreadCount: true,
             business: true, interest: true, budget: true, score: true, nextFollowUp: true,
           },
         },

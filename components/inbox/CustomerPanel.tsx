@@ -12,6 +12,7 @@ interface PanelData {
     id: string;
     name: string;
     phone: string | null;
+    photoUrl: string | null;
     business: string | null;
     interest: string | null;
     budget: string | null;
@@ -64,7 +65,7 @@ export function CustomerPanel({ conversationId }: { conversationId: string }) {
   return (
     <div className="p-5 space-y-5">
       <div className="flex flex-col items-center text-center">
-        <Avatar name={c.name} size={64} />
+        <Avatar name={c.name} size={64} src={c.photoUrl} />
         <h3 className="mt-3 text-[15px] font-bold text-ink">{c.name}</h3>
         <p className="text-[12.5px] text-muted">{maskPhone(c.phone)}</p>
         <Badge tone="blue" className="mt-2">{meta.label}</Badge>

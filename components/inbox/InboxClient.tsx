@@ -9,7 +9,8 @@ import { SearchInput } from '@/components/ui/search';
 import { EmptyState, ErrorState, Skeleton } from '@/components/ui/states';
 import { ChatThread } from './ChatThread';
 import { CustomerPanel } from './CustomerPanel';
-import { MessageSquare, Trash2, CheckSquare, X } from 'lucide-react';
+import { MessageSquare, Trash2, CheckSquare, X, RefreshCw } from 'lucide-react';
+import { toast } from 'sonner';
 
 export interface ConversationItem {
   id: string;
@@ -22,6 +23,7 @@ export interface ConversationItem {
     id: string;
     name: string;
     phone: string | null;
+    photoUrl: string | null;
     stage: string;
     unreadCount: number;
     business: string | null;
@@ -60,6 +62,7 @@ export function InboxClient() {
   const [selectMode, setSelectMode] = useState(false);
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
+  const [refreshingPhotos, setRefreshingPhotos] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async (silent = false) => {
@@ -83,6 +86,26 @@ export function InboxClient() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Tarik foto profil WA pelanggan yang belum ada / sudah lewat 7 hari.
+  const refreshPhotos = useCallback(async () => {
+    if (refreshingPhotos) return;
+    setRefreshingPhotos(true);
+    try {
+      const r = await fetch('/api/conversations/refresh-photos', { method: 'POST' });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.message);
+      const d = j.data;
+      if (d.checked === 0) toast.success('Semua foto profil sudah terbaru.');
+      else if (d.updated === 0) toast.success(`${d.unavailable} pelanggan tidak punya foto yang bisa diambil (privasi).`);
+      else toast.success(`${d.updated} foto diperbarui${d.unavailable ? `, ${d.unavailable} tidak ada foto (privasi)` : ''}.`);
+      load(true);
+    } catch (e: any) {
+      toast.error(e.message || 'Gagal memperbarui foto profil.');
+    } finally {
+      setRefreshingPhotos(false);
+    }
+  }, [refreshingPhotos, load]);
 
   // polling ringan sebagai cadangan bila SSE terputus
   useEffect(() => {
@@ -193,6 +216,14 @@ export function InboxClient() {
         <div className="flex items-center justify-between px-4 pt-4 pb-2">
           <span className="text-[15px] font-bold text-ink">Inbox</span>
           <span className="flex items-center gap-2">
+            <button
+              onClick={refreshPhotos}
+              disabled={refreshingPhotos}
+              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium text-muted hover:text-ink hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-50"
+              title="Perbarui foto profil WA pelanggan yang belum ada"
+            >
+              <RefreshCw className={cn('h-4 w-4', refreshingPhotos && 'animate-spin')} /> Foto
+            </button>
             {!selectMode ? (
               <button
                 onClick={() => setSelectMode(true)}
@@ -307,7 +338,7 @@ export function InboxClient() {
                     className="min-w-0 flex-1 flex gap-3 p-3 text-left"
                   >
                     <span className="relative shrink-0">
-                      <Avatar name={c.customer.name} size={42} />
+                      <Avatar name={c.customer.name} size={42} src={c.customer.photoUrl} />
                       <span
                         className="absolute -bottom-0.5 -right-0.5 flex h-4.5 min-w-[18px] items-center justify-center rounded px-0.5 text-[8.5px] font-bold text-white"
                         style={{ background: meta.color, height: 18 }}

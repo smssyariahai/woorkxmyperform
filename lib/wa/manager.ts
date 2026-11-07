@@ -16,6 +16,7 @@ import QRCode from 'qrcode';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { prisma } from '@/lib/db';
 import { normalizePhone, jidToPhone, phoneToJid } from './phone';
+import { refreshCustomerPhoto, refreshOrgPhotos } from './profile-photo';
 
 export type WaStatus = 'idle' | 'qr' | 'connecting' | 'open' | 'closed';
 
@@ -224,6 +225,9 @@ async function handleIncoming(orgId: string, sock: any) {
           where: { id: customer.id },
           data: { lastMessageAt: now, unreadCount: { increment: 1 } },
         });
+        // Foto profil WA: ambil sekali, simpan lokal, refresh tiap 7 hari.
+        // Fire-and-forget — jangan menahan pemrosesan pesan.
+        refreshCustomerPhoto(orgId, customer.id, sock).catch(() => {});
         // siarkan real-time agar room chat langsung menampilkan pesan ini
         try {
           const { publishMessage, publishConversation } = await import('@/lib/realtime');
@@ -367,6 +371,20 @@ export function getSessionInfo(orgId: string) {
     if (!s) return { status: (hasCreds ? 'closed' : 'idle') as WaStatus, qr: null, phone: null, hasCreds };
   }
   return { status: s.status, qr: s.qr, phone: s.phone, hasCreds: true };
+}
+
+/**
+ * Perbarui foto profil WA pelanggan yang belum ada / sudah lewat 7 hari.
+ * Dipakai tombol "Perbarui foto" di Inbox (POST /api/conversations/refresh-photos).
+ * Gagal bila sesi WA kantor tidak sedang open.
+ */
+export async function refreshOrgCustomerPhotos(orgId: string, limit = 25) {
+  const s = sessions.get(orgId);
+  if (!s?.sock || s.status !== 'open') {
+    return { ok: false as const, error: 'WhatsApp kantor belum terhubung.' };
+  }
+  const r = await refreshOrgPhotos(orgId, s.sock, limit);
+  return { ok: true as const, ...r };
 }
 
 export interface WaSendResult { ok: boolean; error?: string; messageId?: string }
