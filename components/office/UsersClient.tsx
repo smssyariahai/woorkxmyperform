@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { toast } from 'sonner';
-import { Card, CardTitle, Badge } from '@/components/ui/primitives';
+import { Card, CardTitle, Badge, Avatar } from '@/components/ui/primitives';
 import { Field } from '@/components/ui/input';
 import { Input } from '@/components/ui/input';
 import { SearchInput, Pagination } from '@/components/ui/search';
@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils';
 
 interface Member {
   id: string;
-  user: { id: string; name: string; email: string; phone: string | null; status: string; isSuperAdmin: boolean };
+  user: { id: string; name: string; email: string; phone: string | null; avatar: string | null; status: string; isSuperAdmin: boolean };
   role: { id: string; name: string };
   department: { id: string; name: string } | null;
   jobTitle: string | null;
@@ -199,7 +199,12 @@ export function UsersClient({ perms, isSuperAdmin, currentUserId }: { perms: str
           <tbody>
             {items.map((m) => (
               <tr key={m.id}>
-                <td className="font-medium text-ink">{m.user.name}</td>
+                <td className="font-medium text-ink">
+                  <span className="inline-flex items-center gap-2.5">
+                    <Avatar name={m.user.name} size={32} src={m.user.avatar} />
+                    {m.user.name}
+                  </span>
+                </td>
                 <td className="text-muted">{m.user.email}</td>
                 <td>
                   <span className="inline-flex flex-wrap gap-1">
