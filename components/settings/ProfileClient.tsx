@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Card, CardTitle, Badge, Avatar } from '@/components/ui/primitives';
 import { Button } from '@/components/ui/button';
-import { Input, Field } from '@/components/ui/input';
+import { Input, Field, PasswordInput } from '@/components/ui/input';
 import { Skeleton, ErrorState } from '@/components/ui/states';
 import { formatDateTime } from '@/lib/utils';
 import { User as UserIcon, ShieldCheck, MonitorSmartphone } from 'lucide-react';
@@ -169,8 +169,7 @@ export function ProfileClient() {
         <p className="text-[13px] text-muted mb-5">Ubah password akun Anda secara berkala.</p>
         <div className="grid sm:grid-cols-3 gap-4 max-w-2xl">
           <Field label="Password saat ini">
-            <Input
-              type="password"
+            <PasswordInput
               value={curPw}
               onChange={(e) => setCurPw(e.target.value)}
               placeholder="••••••••"
@@ -178,8 +177,7 @@ export function ProfileClient() {
             />
           </Field>
           <Field label="Password baru">
-            <Input
-              type="password"
+            <PasswordInput
               value={newPw}
               onChange={(e) => setNewPw(e.target.value)}
               placeholder="Min. 8 karakter"
@@ -187,8 +185,7 @@ export function ProfileClient() {
             />
           </Field>
           <Field label="Konfirmasi password baru">
-            <Input
-              type="password"
+            <PasswordInput
               value={newPw2}
               onChange={(e) => setNewPw2(e.target.value)}
               placeholder="Ulangi password"
