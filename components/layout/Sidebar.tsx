@@ -58,7 +58,7 @@ const ICONS: Record<string, any> = {
   '/settings/team': Users,
   '/settings/help': LifeBuoy,
   '/upgrade': CreditCard,
-  '/admin': Crown,
+  '/admin/dashboard': Crown,
   '/admin/offices': Globe2,
   '/admin/invoices': Receipt,
   '/admin/modul': Tag,
@@ -394,7 +394,7 @@ export function Sidebar({
                   } catch {
                     /* abaikan */
                   }
-                  signOut({ callbackUrl: '/login' });
+                  signOut({ callbackUrl: pathname.startsWith('/admin') ? '/admin' : '/login' });
                 }}
                 className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-[13px] text-danger hover:bg-red-50 dark:hover:bg-red-900/20"
               >

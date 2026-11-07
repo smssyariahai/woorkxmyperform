@@ -1,4 +1,4 @@
-import NextAuth from 'next-auth';
+import NextAuth, { CredentialsSignin } from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import Google from 'next-auth/providers/google';
 import { randomUUID } from 'node:crypto';
@@ -24,6 +24,29 @@ async function isLoginBlockedBySubscription(organizationId: string, isSuperAdmin
   return sub.status === 'PENDING_PAYMENT' || sub.status === 'CANCELLED';
 }
 
+// Login terpisah (lihat files/login-terpisah-admin-vs-kantor.md):
+// pintu /admin hanya untuk Administrator Pusat + Admin WOORK (platform role
+// dengan organizationId null); pintu /login hanya untuk pengguna kantor.
+// Pemeriksaan ini HANYA dipanggil setelah password terverifikasi, supaya
+// pesan "salah pintu" tidak bisa dipakai untuk menebak jenis akun.
+async function isAdminDoorUser(userId: string, isSuperAdmin: boolean): Promise<boolean> {
+  if (isSuperAdmin) return true;
+  const n = await prisma.platformRoleAssignment.count({
+    where: { userId, role: { organizationId: null } },
+  });
+  return n > 0;
+}
+
+function wrongDoorError(code: 'wrong-door-admin' | 'wrong-door-office'): CredentialsSignin {
+  const err = new CredentialsSignin(
+    code === 'wrong-door-admin'
+      ? 'Akun Administrator WOORK login lewat /admin'
+      : 'Akun ini bukan akun Administrator WOORK'
+  );
+  err.code = code;
+  return err;
+}
+
 // Konfigurasi NextAuth dibuat per-request (async) agar kredensial Google OAuth
 // dapat dibaca dari SystemSetting (dikelola Administrator Pusat) tanpa restart.
 // Env GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET tetap didukung sebagai fallback.
@@ -39,6 +62,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
         email: { label: 'Email', type: 'email' },
         password: { label: 'Password', type: 'password' },
         turnstileToken: { label: 'Turnstile', type: 'text' },
+        // Pintu asal login: 'admin' (halaman /admin) atau 'office' (halaman /login).
+        loginType: { label: 'Pintu login', type: 'text' },
       },
       async authorize(credentials) {
         // Cloudflare Turnstile: wajib lolos bila dikonfigurasi
@@ -51,6 +76,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
         if (!user || !user.password || user.status !== 'ACTIVE') return null;
         const ok = await verifyPassword(parsed.data.password, user.password);
         if (!ok) return null;
+        // Pintu login: tolak peran yang tidak cocok (hanya setelah password benar).
+        const loginType = (credentials as any)?.loginType === 'admin' ? 'admin' : 'office';
+        const isAdminDoor = await isAdminDoorUser(user.id, user.isSuperAdmin);
+        if (loginType === 'admin' && !isAdminDoor) throw wrongDoorError('wrong-door-office');
+        if (loginType === 'office' && isAdminDoor) throw wrongDoorError('wrong-door-admin');
         const membership = await prisma.membership.findFirst({
           where: { userId: user.id, status: 'ACTIVE' },
           include: { organization: true, role: true },
@@ -132,6 +162,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
             if (!membership || dbUser.status !== 'ACTIVE') return false;
             if (!membership.organization.isActive && !dbUser.isSuperAdmin) return false;
             if (await isLoginBlockedBySubscription(membership.organizationId, dbUser.isSuperAdmin)) return false;
+            // Login terpisah: akun Administrator WOORK tidak boleh masuk lewat
+            // Google di /login — arahkan ke halaman login admin.
+            if (await isAdminDoorUser(dbUser.id, dbUser.isSuperAdmin)) {
+              return '/admin?notice=admin-login';
+            }
             (user as any).organizationId = membership.organizationId;
             (user as any).organizationName = membership.organization.name;
             (user as any).role = membership.role.name;

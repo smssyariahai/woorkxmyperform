@@ -100,7 +100,7 @@ export const MODULAR_MODULES: ModularModuleDef[] = [
     billable: false,
     defaultMonthlyPerUser: 0,
     pages: [
-      { href: '/admin', label: 'Dashboard Pusat', platformPerms: ['PLATFORM_TENANTS_VIEW', 'PLATFORM_MASTER_VIEW', 'PLATFORM_AUDIT_VIEW'] },
+      { href: '/admin/dashboard', label: 'Dashboard Pusat', platformPerms: ['PLATFORM_TENANTS_VIEW', 'PLATFORM_MASTER_VIEW', 'PLATFORM_AUDIT_VIEW'] },
       { href: '/admin/offices', label: 'Kantor', platformPerms: ['PLATFORM_TENANTS_VIEW', 'PLATFORM_TENANTS_MANAGE'] },
       { href: '/admin/invoices', label: 'Invoice', platformPerms: ['PLATFORM_TENANTS_VIEW', 'PLATFORM_TENANTS_MANAGE'] },
       { href: '/admin/modul', label: 'Harga Modul', platformPerms: ['PLATFORM_PACKAGES_MANAGE'] },

@@ -23,23 +23,35 @@ const PUBLIC_PATHS = [
   '/esign/sign', // tautan tanda tangan: dicek kedaluwarsanya sebelum login
 ];
 
+// Halaman login admin (/admin) bersifat publik TAPI persis di path itu saja:
+// '/admin/*' (area Administrator Pusat) tetap butuh login.
+const PUBLIC_EXACT = new Set(['/admin']);
+
 const innerAuth = auth((req) => {
   const { pathname } = req.nextUrl;
   const isLoggedIn = !!req.auth;
 
 
-  const isPublic = PUBLIC_PATHS.some(
-    (p) => pathname === p || (p !== '/' && pathname.startsWith(p + '/'))
-  );
+  const isPublic =
+    PUBLIC_EXACT.has(pathname) ||
+    PUBLIC_PATHS.some(
+      (p) => pathname === p || (p !== '/' && pathname.startsWith(p + '/'))
+    );
 
   if (!isLoggedIn && !isPublic && !pathname.startsWith('/api/')) {
     const url = req.nextUrl.clone();
-    url.pathname = '/login';
+    // Area Administrator Pusat yang belum login -> pintu login admin (/admin),
+    // area kantor -> pintu login kantor (/login).
+    url.pathname = pathname.startsWith('/admin/') ? '/admin' : '/login';
     url.searchParams.set('callbackUrl', pathname);
     return Response.redirect(url);
   }
 
-  if (isLoggedIn && (pathname === '/login' || pathname === '/register')) {
+  // Pengalihan "sudah login" untuk /login & /admin TIDAK di sini: middleware
+  // (edge) tidak bisa melihat peran (isSuperAdmin) dari token. Masing-masing
+  // halaman login mengarahkan sendiri secara server-side (lihat
+  // app/(auth)/login/page.tsx dan app/(auth)/admin/page.tsx).
+  if (isLoggedIn && pathname === '/register') {
     const url = req.nextUrl.clone();
     url.pathname = '/dashboard';
     return Response.redirect(url);

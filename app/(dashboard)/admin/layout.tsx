@@ -5,7 +5,7 @@ export const metadata = { title: 'Administrator Pusat — WOORK' };
 
 export default async function SuperAdminLayout({ children }: { children: React.ReactNode }) {
   const ctx = await getAuthContext();
-  if (!ctx) redirect('/login');
+  if (!ctx) redirect('/admin');
   // Administrator Pusat lolos penuh; Admin WOORK lolos bila memegang
   // setidaknya satu permission platform (filter menu + guard API yang memilah).
   if (!ctx.isSuperAdmin) {
