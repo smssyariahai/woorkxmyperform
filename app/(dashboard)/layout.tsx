@@ -19,7 +19,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
     prisma.membership.findMany({
       where: { userId: ctx.userId, status: 'ACTIVE' },
       include: {
-        organization: { select: { id: true, name: true, isActive: true } },
+        organization: { select: { id: true, name: true, isActive: true, logoPath: true, updatedAt: true } },
         role: { select: { name: true } },
       },
       orderBy: { joinedAt: 'asc' },
@@ -63,6 +63,12 @@ export default async function DashboardLayout({ children }: { children: React.Re
           organizationName: m.organization.name,
           role: m.role.name,
           current: m.organization.id === ctx.organizationId,
+          // Foto profil kantor (logo). Endpoint authed, jadi kantor tanpa
+          // subdomain pun tetap bisa menampilkan logonya. `v=` membatalkan
+          // cache browser setelah logo diganti.
+          logoUrl: m.organization.logoPath
+            ? `/api/office/logo?orgId=${m.organization.id}&v=${m.organization.updatedAt.getTime()}`
+            : null,
         }))}
       unread={unread}
     >

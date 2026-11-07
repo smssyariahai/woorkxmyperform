@@ -46,7 +46,7 @@ export function AppShell({
   activeModules: ModularKey[];
   /** level akses per pengguna (kunci modul baru + kunci lama). */
   moduleLevels: Record<string, ModuleAccessLevel>;
-  memberships: Array<{ organizationId: string; organizationName: string; role: string; current: boolean }>;
+  memberships: Array<{ organizationId: string; organizationName: string; role: string; current: boolean; logoUrl: string | null }>;
   unread: number;
   trial?: TrialStatus | null;
   subscriptionNotice?: SubscriptionNotice | null;

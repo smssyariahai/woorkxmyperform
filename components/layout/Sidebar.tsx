@@ -16,6 +16,7 @@ import {
   Settings,
   LifeBuoy,
   Briefcase,
+  Camera,
   ChevronsUpDown,
   LogOut,
   KeyRound,
@@ -34,6 +35,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { signOut, useSession } from 'next-auth/react';
+import { toast } from 'sonner';
 import { MODULAR_MODULES, type ModularKey, type ModularPageDef, type ModuleAccessLevel } from '@/lib/modular';
 
 /** Ikon per halaman (kunci = href). */
@@ -73,6 +75,21 @@ export interface MembershipInfo {
   organizationName: string;
   role: string;
   current: boolean;
+  /** Foto profil kantor (logo) — null bila belum ada. */
+  logoUrl: string | null;
+}
+
+/** Avatar kantor: foto logo bila ada, huruf awal bila belum. */
+function OrgAvatar({ name, logoUrl, size }: { name: string; logoUrl: string | null; size: 'md' | 'sm' }) {
+  const cls = size === 'md' ? 'h-8 w-8 rounded-btn text-[13px]' : 'h-7 w-7 rounded-md text-[11px]';
+  if (logoUrl) {
+    return <img src={logoUrl} alt={name} className={`${cls} shrink-0 object-cover bg-white`} />;
+  }
+  return (
+    <span className={`flex items-center justify-center shrink-0 bg-brand-900 text-white font-bold ${cls}`}>
+      {name.charAt(0).toUpperCase()}
+    </span>
+  );
 }
 
 export function Sidebar({
@@ -114,6 +131,47 @@ export function Sidebar({
   const [menuOpen, setMenuOpen] = useState(false);
   const [orgOpen, setOrgOpen] = useState(false);
   const [switching, setSwitching] = useState(false);
+
+  /** Foto profil kantor (logo) di kartu atas: yang boleh ganti hanya pemegang
+   *  SETTINGS_MANAGE (Admin Kantor, IT Support) — Administrator Pusat lolos. */
+  const canUploadLogo =
+    isSuperAdmin || permissions.includes('SETTINGS_MANAGE') || permissions.includes('*');
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const [logoTick, setLogoTick] = useState(0);
+  const currentOrg = memberships.find((m) => m.current);
+  const orgLogoUrl = currentOrg?.logoUrl ?? null;
+  // `t=` membatalkan cache browser tepat setelah upload (di luar `v=` dari server).
+  const logoSrc = orgLogoUrl ? (logoTick ? `${orgLogoUrl}&t=${logoTick}` : orgLogoUrl) : null;
+
+  async function onLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'].includes(file.type)) {
+      toast.error('Format gambar harus PNG, JPG, WEBP, atau SVG.');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('Ukuran gambar maksimal 2MB.');
+      return;
+    }
+    setUploadingLogo(true);
+    try {
+      const fd = new FormData();
+      fd.append('logo', file);
+      const r = await fetch('/api/admin/office/branding', { method: 'POST', body: fd });
+      const j = await r.json();
+      if (!j.success) throw new Error(j.message);
+      toast.success('Foto profil kantor diperbarui.');
+      setLogoTick(Date.now());
+      router.refresh();
+    } catch (err: any) {
+      toast.error(err.message || 'Gagal mengunggah foto.');
+    } finally {
+      setUploadingLogo(false);
+    }
+  }
 
   /** Status lipat seksi modul — tersimpan di sessionStorage (per tab):
    *  refresh mempertahankan seksi yang sedang terbuka, sedangkan login
@@ -296,20 +354,46 @@ export function Sidebar({
 
       {/* Pemilih kantor (multi-kantor) */}
       <div className="px-3 pt-3 relative">
-        <button
-          onClick={() => setOrgOpen((v) => !v)}
+        <div
           className={cn(
             'w-full flex items-center gap-2.5 rounded-btn border border-line bg-canvas px-3 py-2.5 text-left hover:border-brand/40 transition-colors',
             collapsed && 'justify-center px-0'
           )}
           title={orgName}
-          aria-label="Ganti kantor"
         >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-btn bg-brand-900 text-white text-[13px] font-bold">
-            {orgName.charAt(0).toUpperCase()}
-          </span>
+          {canUploadLogo ? (
+            <button
+              type="button"
+              onClick={() => logoInputRef.current?.click()}
+              disabled={uploadingLogo}
+              className="relative shrink-0 rounded-btn focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+              title="Ganti foto profil kantor"
+              aria-label="Ganti foto profil kantor"
+            >
+              <OrgAvatar name={orgName} logoUrl={logoSrc} size="md" />
+              <span className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-brand text-white shadow">
+                <Camera className="h-2.5 w-2.5" />
+              </span>
+            </button>
+          ) : (
+            <OrgAvatar name={orgName} logoUrl={logoSrc} size="md" />
+          )}
+          <input
+            ref={logoInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/svg+xml"
+            className="hidden"
+            onChange={onLogoFile}
+            aria-hidden
+            tabIndex={-1}
+          />
           {!collapsed && (
-            <>
+            <button
+              type="button"
+              onClick={() => setOrgOpen((v) => !v)}
+              className="flex flex-1 min-w-0 items-center gap-2.5 text-left"
+              aria-label="Ganti kantor"
+            >
               <span className="flex-1 min-w-0">
                 <span className="block truncate text-[13px] font-semibold text-ink">{orgName}</span>
                 <span className="block text-[11px] text-muted capitalize">
@@ -318,9 +402,9 @@ export function Sidebar({
                 </span>
               </span>
               <ChevronsUpDown className="h-4 w-4 text-muted shrink-0" />
-            </>
+            </button>
           )}
-        </button>
+        </div>
         {orgOpen && !collapsed && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setOrgOpen(false)} />
@@ -340,9 +424,7 @@ export function Sidebar({
                       : 'text-ink hover:bg-slate-100 dark:hover:bg-slate-800'
                   )}
                 >
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-brand-900 text-white text-[11px] font-bold">
-                    {m.organizationName.charAt(0).toUpperCase()}
-                  </span>
+                  <OrgAvatar name={m.organizationName} logoUrl={m.logoUrl ?? null} size="sm" />
                   <span className="flex-1 min-w-0">
                     <span className="block truncate font-medium">{m.organizationName}</span>
                     <span className="block text-[11px] text-muted capitalize">{m.role.toLowerCase()}</span>
