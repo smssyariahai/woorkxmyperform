@@ -3,6 +3,7 @@ import { requirePermission, getUserPermissions, assertCanGrant } from '@/lib/aut
 import { apiOk, apiErr } from '@/lib/utils';
 import { audit, getClientIp } from '@/lib/audit';
 import { hashPassword } from '@/lib/password';
+import { validateUserDetailInput, buildUserDetailOps } from '@/lib/user-detail';
 
 export const dynamic = 'force-dynamic';
 
@@ -95,12 +96,32 @@ export async function POST(req: Request) {
     }
 
     const password = String(body?.password || '').trim();
+    const username = body?.username ? String(body.username).trim().toLowerCase() : null;
+    if (username && !/^[a-z0-9._-]{3,32}$/.test(username)) {
+      return apiErr('Username hanya boleh huruf kecil, angka, titik, _ dan -, panjang 3–32 karakter.', 422);
+    }
+    if (username) {
+      const clash = await prisma.user.findFirst({ where: { username }, select: { id: true } });
+      if (clash) return apiErr('Username sudah dipakai pengguna lain.', 409);
+    }
+
+    // Validasi data lengkap (profil, keluarga, ketenagakerjaan, dll) SEBELUM
+    // membuat apa pun, agar gagal validasi tidak menyisakan user setengah jadi.
+    // userId sementara = id user yang sudah ada (bila email dikenal) atau
+    // placeholder — validasi manajer/approver memakai userId ini hanya untuk
+    // cek "bukan diri sendiri", jadi placeholder aman untuk user baru.
+    const detail = await validateUserDetailInput(body, {
+      organizationId: ctx.organizationId,
+      userId: existingUser ? existingUser.id : 'new',
+    });
+
     const user = existingUser
       ? existingUser
       : await prisma.user.create({
           data: {
             name,
             email,
+            username,
             phone: body?.phone ? String(body.phone).trim() : null,
             password: password ? await hashPassword(password) : null,
             status: 'ACTIVE',
@@ -121,6 +142,12 @@ export async function POST(req: Request) {
         role: { select: { name: true } },
       },
     });
+
+    // Data lengkap (profil, keluarga, ketenagakerjaan, pendidikan,
+    // pengalaman, nilai custom, akses modul).
+    await prisma.$transaction(
+      buildUserDetailOps(detail, { userId: user.id, membershipId: membership.id })
+    );
 
     await audit({
       organizationId: ctx.organizationId,

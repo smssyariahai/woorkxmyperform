@@ -46,6 +46,7 @@ model Organization {
   dealStages         DealStage[]
   masterLedger       MasterLedger[]
   departments        Department[]
+  customFieldDefs    UserCustomFieldDef[]
   followUps          FollowUp[]
   hrCandidates       HrCandidate[]
   hrContracts        HrContract[]
@@ -201,6 +202,7 @@ model User {
   id                String                @id @default(cuid())
   name              String
   email             String                @unique
+  username          String?               @unique
   password          String?
   avatar            String?
   phone             String?
@@ -230,6 +232,12 @@ model User {
   esignTemplates    EsignTemplate[]       @relation("EsignTemplateAuthor")
   esignAuditLogs    EsignAuditLog[]       @relation("EsignAuditLogUser")
   esignNotifications EsignNotification[]  @relation("EsignNotificationRecipient")
+  profile           UserProfile?
+  familyContacts    UserFamilyContact[]
+  educations        UserEducation[]
+  workExperiences   UserWorkExperience[]
+  managedEmployments UserEmployment[]      @relation("EmploymentManager")
+  approvedEmployments UserEmployment[]     @relation("EmploymentApprover")
   sentInvitations   Invitation[]          @relation("InvitationSender")
   ownedLeads        Lead[]                @relation("LeadOwner")
   memberships       Membership[]
@@ -290,11 +298,170 @@ model Membership {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   role           Role         @relation(fields: [roleId], references: [id])
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employment     UserEmployment?
+  customValues   UserCustomValue[]
+  moduleAccess   UserModuleAccess[]
 
   @@unique([userId, organizationId])
   @@index([organizationId])
   @@index([userId])
   @@index([departmentId])
+}
+
+// Data personal pengguna (Sidebar 1 — Info Personal Data).
+// Satu profil per User (berlaku lintas kantor); data ketenagakerjaan
+// justru per Membership (UserEmployment) karena bisa berbeda per kantor.
+model UserProfile {
+  id             String    @id @default(cuid())
+  userId         String    @unique
+  birthDate      DateTime?
+  gender         String? // 'L' | 'P'
+  maritalStatus  String? // Lajang | Menikah | Cerai
+  bloodType      String? // A | B | AB | O
+  religion       String? // Katolik | Islam | Kristen | Buddha | Hindu | Konghucu | Lainnya
+  nik            String?
+  ktpAddress     String?
+  postalCode     String?
+  homeAddress    String? // Alamat tempat tinggal (bila berbeda dari KTP)
+  docAccessLevel String?   @default("INTERNAL") // UMUM | INTERNAL | RAHASIA
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([nik])
+}
+
+// Kontak keluarga/kerabat pengguna (Sidebar 1 — Info Kontak Keluarga).
+model UserFamilyContact {
+  id           String   @id @default(cuid())
+  userId       String
+  name         String
+  relationship String // Ayah | Ibu | Saudara Kandung | Pasangan | Anak | ...
+  phone        String?
+  address      String?
+  occupation   String?
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// Info ketenagakerjaan (Sidebar 2) — satu per Membership (per kantor).
+model UserEmployment {
+  id                String      @id @default(cuid())
+  membershipId      String      @unique
+  companyName       String?
+  employeeId        String? // ID karyawan
+  organizationName  String? // Nama organisasi / unit
+  position          String? // Posisi pekerjaan
+  jobLevel          String? // Tingkat jabatan
+  employmentStatus  String? // Tetap | Kontrak | Magang | Freelance | Percobaan
+  branch            String? // Cabang
+  joinDate          DateTime?
+  endDate           DateTime? // Tanggal berakhirnya status kepegawaian
+  grade             String? // Golongan
+  classLevel        String? // Kelas
+  managerId         String? // Manajer / Atasan Langsung (User di kantor yang sama)
+  approvalApproverId String? // Alur persetujuan bila berbeda dari atasan langsung
+  approvalNote      String?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  membership        Membership  @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  manager           User?       @relation("EmploymentManager", fields: [managerId], references: [id])
+  approver          User?       @relation("EmploymentApprover", fields: [approvalApproverId], references: [id])
+
+  @@index([employeeId])
+}
+
+// Pendidikan formal & informal (Sidebar 2 — Pendidikan & Pengalaman).
+model UserEducation {
+  id             String    @id @default(cuid())
+  userId         String
+  kind           String // FORMAL | INFORMAL
+  degree         String? // Derajat pendidikan formal (lihat FORMAL_DEGREES)
+  name           String? // Nama pendidikan informal
+  institution    String? // Institusi (formal) / Dipegang oleh (informal)
+  fieldOfStudy   String? // Bidang studi (formal)
+  grade          String? // Grade (formal)
+  startYear      Int?
+  endYear        Int?
+  expiryDate     DateTime? // Tanggal kedaluwarsa (informal)
+  cost           Int? // Biaya (informal, rupiah)
+  activity       String? // Kegiatan
+  hasCertificate Boolean   @default(false)
+  certificatePath String? // Lampiran sertifikat (path di uploads/users/)
+  sortOrder      Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// Pengalaman kerja (Sidebar 2).
+model UserWorkExperience {
+  id          String   @id @default(cuid())
+  userId      String
+  companyName String
+  position    String
+  startYear   Int?
+  endYear     Int?
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// Definisi field custom per kantor (Sidebar 3 — Info Tambahan).
+model UserCustomFieldDef {
+  id             String            @id @default(cuid())
+  organizationId String
+  label          String
+  type           String // SHORT_TEXT | LONG_TEXT | NUMBER | CURRENCY | DATE | TIME | SELECT | BOOLEAN | EMAIL | PHONE | URL | FILE
+  options        String? // JSON array string — pilihan untuk tipe SELECT
+  required       Boolean           @default(false)
+  sortOrder      Int               @default(0)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  values         UserCustomValue[]
+
+  @@index([organizationId])
+}
+
+// Nilai field custom per Membership (per kantor).
+model UserCustomValue {
+  id           String             @id @default(cuid())
+  membershipId String
+  fieldDefId   String
+  value        String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  membership   Membership         @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  fieldDef     UserCustomFieldDef @relation(fields: [fieldDefId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, fieldDefId])
+  @@index([membershipId])
+}
+
+// Hak akses modul per pengguna (Sidebar 4) — override per user.
+// Tanpa baris = ikut aturan kantor (modul paket). Baris allowed=false
+// = modul itu dicabut untuk user ini (ditegakkan di assertPermission).
+model UserModuleAccess {
+  id           String     @id @default(cuid())
+  membershipId String
+  moduleKey    String // inbox | crm | hr | broadcast | bot | kantor | channels | esign
+  allowed      Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, moduleKey])
+  @@index([membershipId])
 }
 
 // Penugasan role platform (Admin WOORK, Fase 1 RBAC).

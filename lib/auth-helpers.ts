@@ -152,6 +152,25 @@ async function assertPermission(
   const catalogModule = MODULE_OF_PERMISSION.get(permission);
   const moduleKey = catalogModule ? MODULE_BY_CATALOG_MODULE[catalogModule] : undefined;
   if (moduleKey) await requireModule(ctx, moduleKey);
+  // Batasan modul per pengguna (Sidebar 4 — Hak Akses Modul):
+  // bila ada baris UserModuleAccess allowed=false untuk modul ini, tolak.
+  // Tanpa baris = ikut aturan kantor (perilaku lama tidak berubah).
+  if (moduleKey) {
+    const membership = await prisma.membership.findFirst({
+      where: { userId: ctx.userId, organizationId: ctx.organizationId },
+      select: { id: true },
+    });
+    if (membership) {
+      const access = await prisma.userModuleAccess.findUnique({
+        where: { membershipId_moduleKey: { membershipId: membership.id, moduleKey } },
+        select: { allowed: true },
+      });
+      if (access && !access.allowed) {
+        const label = AVAILABLE_MODULES.find((m) => m.key === moduleKey)?.label ?? moduleKey;
+        throw apiErr(`Modul ${label} tidak diaktifkan untuk akun Anda. Hubungi admin kantor.`, 403);
+      }
+    }
+  }
   // Batasan trial: tulis diblokir bila trial habis; Bot nonaktif selama trial.
   if (isWritePermission(permission)) {
     const trial = await getTrialStatus(ctx.organizationId);

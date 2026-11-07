@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { toast } from 'sonner';
 import { Card, CardTitle, Badge } from '@/components/ui/primitives';
 import { Field } from '@/components/ui/input';
@@ -27,7 +28,7 @@ export function UsersClient({ perms, isSuperAdmin, currentUserId }: { perms: str
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [modal, setModal] = useState<null | 'add' | 'edit' | 'role' | 'reset' | 'super'>(null);
+  const [modal, setModal] = useState<null | 'role' | 'reset' | 'super'>(null);
   const [sel, setSel] = useState<Member | null>(null);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', roleId: '', departmentId: '', jobTitle: '' });
@@ -61,74 +62,6 @@ export function UsersClient({ perms, isSuperAdmin, currentUserId }: { perms: str
     const t = setTimeout(load, 250);
     return () => clearTimeout(t);
   }, [load]);
-
-  function openAdd() {
-    setForm({ name: '', email: '', phone: '', password: '', roleId: '', departmentId: '', jobTitle: '' });
-    setModal('add');
-  }
-  function openEdit(m: Member) {
-    setSel(m);
-    setForm({ name: m.user.name, email: m.user.email, phone: m.user.phone ?? '', password: '', roleId: m.role.id, departmentId: m.department?.id ?? '', jobTitle: m.jobTitle ?? '' });
-    setModal('edit');
-  }
-
-  async function submitAdd() {
-    if (!form.name.trim() || !form.email.trim() || !form.roleId) {
-      toast.error('Nama, email, dan role wajib diisi.');
-      return;
-    }
-    setBusy(true);
-    try {
-      const r = await fetch('/api/admin/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: form.name.trim(),
-          email: form.email.trim(),
-          phone: form.phone.trim(),
-          password: form.password,
-          roleId: form.roleId,
-          departmentId: form.departmentId || null,
-          jobTitle: form.jobTitle.trim(),
-        }),
-      });
-      const j = await r.json();
-      if (!j.success) throw new Error(j.message);
-      toast.success('Pengguna ditambahkan.');
-      setModal(null);
-      load();
-    } catch (e: any) {
-      toast.error(e.message || 'Gagal menambah pengguna.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function submitEdit() {
-    if (!sel) return;
-    setBusy(true);
-    try {
-      const r = await fetch(`/api/admin/users/${sel.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: form.name.trim(),
-          phone: form.phone.trim(),
-          departmentId: form.departmentId || null,
-          jobTitle: form.jobTitle.trim(),
-        }),
-      });
-      const j = await r.json();
-      if (!j.success) throw new Error(j.message);
-      toast.success('Data pengguna diperbarui.');
-      setModal(null);
-      load();
-    } catch (e: any) {
-      toast.error(e.message || 'Gagal menyimpan.');
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function toggleActive(m: Member) {
     const active = m.status !== 'ACTIVE';
@@ -226,9 +159,9 @@ export function UsersClient({ perms, isSuperAdmin, currentUserId }: { perms: str
           <p className="text-sm text-muted">Kelola akun karyawan di kantor ini.</p>
         </div>
         {can('USERS_CREATE') && (
-          <button onClick={openAdd} className="btn-primary !py-2 text-[13px]">
+          <Link href="/admin-kantor/users/new" className="btn-primary !py-2 text-[13px]">
             <Plus className="h-4 w-4" /> Tambah Pengguna
-          </button>
+          </Link>
         )}
       </div>
 
@@ -267,7 +200,7 @@ export function UsersClient({ perms, isSuperAdmin, currentUserId }: { perms: str
                 <td className="!text-right">
                   <span className="inline-flex gap-1 justify-end">
                     {can('USERS_UPDATE') && (
-                      <button onClick={() => openEdit(m)} title="Edit" className="rounded-btn p-2 text-muted hover:bg-slate-100 hover:text-ink"><Pencil className="h-4 w-4" /></button>
+                      <Link href={`/admin-kantor/users/${m.id}`} title="Edit" className="rounded-btn p-2 text-muted hover:bg-slate-100 hover:text-ink"><Pencil className="h-4 w-4" /></Link>
                     )}
                     {can('USERS_ASSIGN_ROLE') && (
                       <button onClick={() => { setSel(m); setForm((f) => ({ ...f, roleId: m.role.id })); setModal('role'); }} title="Ubah role" className="rounded-btn p-2 text-muted hover:bg-slate-100 hover:text-ink"><UserCog className="h-4 w-4" /></button>
@@ -296,50 +229,6 @@ export function UsersClient({ perms, isSuperAdmin, currentUserId }: { perms: str
         {items.length === 0 && <p className="text-sm text-muted text-center py-8">Tidak ada pengguna.</p>}
         <Pagination page={page} totalPages={totalPages} onPage={setPage} />
       </Card>
-
-      {/* Modal tambah */}
-      {modal === 'add' && (
-        <Modal title="Tambah Pengguna" onClose={() => setModal(null)}>
-          <div className="grid sm:grid-cols-2 gap-4">
-            <Field label="Nama lengkap *"><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
-            <Field label="Email *"><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
-            <Field label="No. telepon"><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></Field>
-            <Field label="Password awal (opsional)"><Input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder="Kosongkan bila belum diset" /></Field>
-            <Field label="Role *">
-              <select value={form.roleId} onChange={(e) => setForm({ ...form, roleId: e.target.value })} className="input">
-                <option value="">— Pilih role —</option>
-                {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-              </select>
-            </Field>
-            <Field label="Divisi">
-              <select value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })} className="input">
-                <option value="">— Tanpa divisi —</option>
-                {depts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
-            </Field>
-            <Field label="Jabatan"><Input value={form.jobTitle} onChange={(e) => setForm({ ...form, jobTitle: e.target.value })} placeholder="cth: Staff HR" /></Field>
-          </div>
-          <ModalFoot onClose={() => setModal(null)} onSave={submitAdd} busy={busy} saveLabel="Tambah" />
-        </Modal>
-      )}
-
-      {/* Modal edit */}
-      {modal === 'edit' && sel && (
-        <Modal title={`Edit — ${sel.user.name}`} onClose={() => setModal(null)}>
-          <div className="grid sm:grid-cols-2 gap-4">
-            <Field label="Nama lengkap"><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
-            <Field label="No. telepon"><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></Field>
-            <Field label="Divisi">
-              <select value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })} className="input">
-                <option value="">— Tanpa divisi —</option>
-                {depts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
-            </Field>
-            <Field label="Jabatan"><Input value={form.jobTitle} onChange={(e) => setForm({ ...form, jobTitle: e.target.value })} /></Field>
-          </div>
-          <ModalFoot onClose={() => setModal(null)} onSave={submitEdit} busy={busy} saveLabel="Simpan" />
-        </Modal>
-      )}
 
       {/* Modal ubah role */}
       {modal === 'role' && sel && (
