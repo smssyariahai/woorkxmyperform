@@ -196,7 +196,7 @@ export function EsignList() {
 
       {/* Filter + cari */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="-mx-1 flex flex-nowrap gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0 sm:pb-0 [&::-webkit-scrollbar]:hidden">
+        <div className="-mx-1 flex flex-nowrap gap-1.5 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {ESIGN_STATUS_FILTERS.map((f) => (
             <button
               key={f.id}
@@ -204,9 +204,9 @@ export function EsignList() {
               onClick={() => setStatus(f.id)}
               aria-pressed={status === f.id}
               className={cn(
-                'shrink-0 rounded-full border px-3.5 py-1.5 text-[12.5px] font-medium transition-colors',
+                'shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
                 status === f.id
-                  ? 'border-brand-600 bg-brand-600 text-white shadow-sm'
+                  ? 'border-brand-600 bg-brand-600 text-white'
                   : 'border-line bg-white text-muted hover:border-brand/50 hover:text-ink dark:bg-slate-900'
               )}
             >
