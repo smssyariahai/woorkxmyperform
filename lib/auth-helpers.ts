@@ -27,6 +27,13 @@ export interface AuthContext {
   organizationName: string;
   role: string;
   isSuperAdmin: boolean;
+  /**
+   * Pintu login sesi ini ('admin' = /admin, 'office' = /login).
+   * Sesi office-door adalah sesi karyawan murni: isSuperAdmin di konteks
+   * ini sudah nilai EFEKTIF (false untuk sesi office), dan permission
+   * platform dikosongkan (lihat getUserPlatformPermissions).
+   */
+  loginDoor: 'admin' | 'office';
 }
 
 export interface AuthOptions {
@@ -63,6 +70,11 @@ export async function requireAuth(opts?: AuthOptions): Promise<AuthContext> {
   if (!dbUser || dbUser.status !== 'ACTIVE') {
     throw apiErr('Akun Anda dinonaktifkan. Hubungi administrator.', 401);
   }
+  // Sesi ikut pintu (Opsi B): sesi office-door adalah sesi karyawan murni.
+  // Tanpa pintu tercatat, perlakukan sebagai office (fail-closed); sesi JWT
+  // normal selalu membawa pintu (ditentukan sekali oleh jwt() untuk sesi lama).
+  const loginDoor = (u as any).loginDoor === 'admin' ? 'admin' : 'office';
+  const effectiveSuperAdmin = dbUser.isSuperAdmin && loginDoor !== 'office';
   const membership = await prisma.membership.findFirst({
     where: { userId: u.id as string, organizationId: targetOrgId },
     include: {
@@ -79,7 +91,7 @@ export async function requireAuth(opts?: AuthOptions): Promise<AuthContext> {
     }
     throw apiErr('Akses Anda ke kantor ini telah dicabut.', 403);
   }
-  if (!membership.organization.isActive && !dbUser.isSuperAdmin) {
+  if (!membership.organization.isActive && !effectiveSuperAdmin) {
     throw apiErr('Kantor ini sedang dinonaktifkan.', 403);
   }
   return {
@@ -91,7 +103,8 @@ export async function requireAuth(opts?: AuthOptions): Promise<AuthContext> {
     // Role sesi berlaku untuk organisasi aktif sesi; bila otorisasi
     // dialihkan ke organisasi dokumen, pakai role di organisasi itu.
     role: opts?.organizationId ? (membership.role?.name ?? u.role) : u.role,
-    isSuperAdmin: dbUser.isSuperAdmin,
+    isSuperAdmin: effectiveSuperAdmin,
+    loginDoor,
   };
 }
 
@@ -278,6 +291,9 @@ export async function requirePermissionForUser(
     organizationName: membership.organization.name,
     role: membership.role?.name ?? '',
     isSuperAdmin: dbUser.isSuperAdmin,
+    // Tanpa sesi (jalur bot): tidak ada pintu; perlakukan seperti akses
+    // penuh user — jalur ini bukan sesi browser dan tidak menyentuh /admin.
+    loginDoor: 'admin',
   };
   await assertPermission(ctx, permission, req);
   return ctx;
@@ -306,6 +322,9 @@ export async function requireSuperAdmin(req?: Request): Promise<AuthContext> {
  * penugasan yang menunjuk role tenant diabaikan.
  */
 export async function getUserPlatformPermissions(ctx: AuthContext): Promise<Set<string>> {
+  // Sesi office-door = karyawan murni: tidak ada permission platform,
+  // walau user-nya Administrator WOORK.
+  if (ctx.loginDoor === 'office') return new Set();
   if (ctx.isSuperAdmin) return new Set(['*']);
   const assigns = await prisma.platformRoleAssignment.findMany({
     where: { userId: ctx.userId },

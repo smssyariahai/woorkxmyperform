@@ -76,21 +76,31 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
         if (!user || !user.password || user.status !== 'ACTIVE') return null;
         const ok = await verifyPassword(parsed.data.password, user.password);
         if (!ok) return null;
-        // Pintu login: tolak peran yang tidak cocok (hanya setelah password benar).
+        // Pintu login (Opsi B — sesi ikut pintu): /admin hanya untuk
+        // Administrator WOORK; /login untuk pengguna kantor — TAPI admin yang
+        // juga anggota aktif kantor boleh masuk /login sebagai karyawan murni
+        // (sesi office-door tidak membawa hak admin). Penolakan peran tetap
+        // hanya setelah password benar.
         const loginType = (credentials as any)?.loginType === 'admin' ? 'admin' : 'office';
         const isAdminDoor = await isAdminDoorUser(user.id, user.isSuperAdmin);
         if (loginType === 'admin' && !isAdminDoor) throw wrongDoorError('wrong-door-office');
-        if (loginType === 'office' && isAdminDoor) throw wrongDoorError('wrong-door-admin');
         const membership = await prisma.membership.findFirst({
           where: { userId: user.id, status: 'ACTIVE' },
           include: { organization: true, role: true },
           orderBy: { joinedAt: 'asc' },
         });
-        if (!membership) return null;
-        // Kantor dinonaktifkan: tolak login kecuali Administrator Pusat
-        if (!membership.organization.isActive && !user.isSuperAdmin) return null;
-        // Langganan menunggu pembayaran / dibatalkan: tolak login (kecuali Pusat)
-        if (await isLoginBlockedBySubscription(membership.organizationId, user.isSuperAdmin)) return null;
+        if (!membership) {
+          // Admin tanpa keanggotaan kantor tidak bisa masuk /login — arahkan
+          // ke pintu admin (bukan gagal generik).
+          if (loginType === 'office' && isAdminDoor) throw wrongDoorError('wrong-door-admin');
+          return null;
+        }
+        // Bypass kantor/langganan hanya untuk Administrator Pusat yang login
+        // lewat pintu admin; sesi karyawan tunduk pada aturan kantor seperti
+        // karyawan lainnya.
+        const adminBypass = user.isSuperAdmin && loginType === 'admin';
+        if (!membership.organization.isActive && !adminBypass) return null;
+        if (await isLoginBlockedBySubscription(membership.organizationId, adminBypass)) return null;
         return {
           id: user.id,
           name: user.name,
@@ -100,6 +110,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
           organizationName: membership.organization.name,
           role: membership.role.name,
           isSuperAdmin: user.isSuperAdmin,
+          loginDoor: loginType,
         };
       },
     }),
@@ -148,6 +159,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
             (user as any).organizationName = org.name;
             (user as any).role = 'OWNER';
             (user as any).isSuperAdmin = false;
+            (user as any).loginDoor = 'office';
             // Samakan id sesi dengan id user di DB (cabang user lama sudah melakukannya).
             // Tanpa ini, token JWT memakai id OAuth (Google sub) yang tidak ada di tabel
             // User -> Session FK gagal + layout dashboard redirect loop /login <-> /dashboard.
@@ -160,17 +172,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
               orderBy: { joinedAt: 'asc' },
             });
             if (!membership || dbUser.status !== 'ACTIVE') return false;
-            if (!membership.organization.isActive && !dbUser.isSuperAdmin) return false;
-            if (await isLoginBlockedBySubscription(membership.organizationId, dbUser.isSuperAdmin)) return false;
-            // Login terpisah: akun Administrator WOORK tidak boleh masuk lewat
-            // Google di /login — arahkan ke halaman login admin.
-            if (await isAdminDoorUser(dbUser.id, dbUser.isSuperAdmin)) {
-              return '/admin?notice=admin-login';
-            }
+            // Google hanya ada di /login (pintu office): sesi karyawan murni,
+            // tanpa bypass kantor/langganan untuk Administrator Pusat.
+            if (!membership.organization.isActive) return false;
+            if (await isLoginBlockedBySubscription(membership.organizationId, false)) return false;
             (user as any).organizationId = membership.organizationId;
             (user as any).organizationName = membership.organization.name;
             (user as any).role = membership.role.name;
             (user as any).isSuperAdmin = dbUser.isSuperAdmin;
+            (user as any).loginDoor = 'office';
             user.id = dbUser.id;
             user.name = dbUser.name;
           }
@@ -180,15 +190,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
       async jwt({ token, user, trigger, session }) {
         // Ganti kantor aktif: client memanggil update({ organizationId }) —
         // server memvalidasi membership sebelum mengganti token.
+        // Bypass kantor/langganan hanya untuk sesi pintu admin; sesi karyawan
+        // tunduk pada aturan kantor (lihat isSuperAdmin efektif di bawah).
+        const doorAdmin = (token as any).loginDoor !== 'office';
+        const effSuperAdmin = (token as any).isSuperAdmin === true && doorAdmin;
         if (trigger === 'update' && (session as any)?.organizationId) {
           const targetOrg = String((session as any).organizationId);
           const m = await prisma.membership.findFirst({
             where: { userId: token.sub as string, organizationId: targetOrg, status: 'ACTIVE' },
             include: { organization: true, role: true },
           });
-          if (m && (m.organization.isActive || (token as any).isSuperAdmin)) {
+          if (m && (m.organization.isActive || effSuperAdmin)) {
             // Jangan pindah ke kantor yang langganannya menunggu pembayaran.
-            if (await isLoginBlockedBySubscription(targetOrg, (token as any).isSuperAdmin === true)) {
+            if (await isLoginBlockedBySubscription(targetOrg, effSuperAdmin)) {
               return token;
             }
             token.organizationId = m.organizationId;
@@ -203,6 +217,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
           token.organizationName = (user as any).organizationName;
           token.role = (user as any).role;
           token.isSuperAdmin = (user as any).isSuperAdmin === true;
+          // Sesi ikut pintu: catat pintu login di token.
+          token.loginDoor = (user as any).loginDoor === 'admin' ? 'admin' : 'office';
         }
         // Refresh berkala agar pencabutan akses / penonaktifan cepat berlaku
         if (token.sub && (token as any)._permAt) {
@@ -219,6 +235,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
         } else if (token.sub) {
           (token as any)._permAt = Date.now();
         }
+        // Sesi lama (dibuat sebelum pintu login dicatat): tentukan pintunya
+        // sekali dari peran user, supaya sesi admin yang sudah berjalan tidak
+        // kehilangan aksesnya — dan sesi karyawan tetap karyawan.
+        if (!(token as any).loginDoor && token.sub) {
+          (token as any).loginDoor = (await isAdminDoorUser(
+            token.sub as string,
+            (token as any).isSuperAdmin === true
+          ))
+            ? 'admin'
+            : 'office';
+        }
         return token;
       },
       async session({ session, token }) {
@@ -227,7 +254,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
           (session.user as any).organizationId = token.organizationId;
           (session.user as any).organizationName = token.organizationName;
           (session.user as any).role = token.role;
-          (session.user as any).isSuperAdmin = (token as any).isSuperAdmin === true;
+          // Sesi ikut pintu: isSuperAdmin di sesi adalah nilai EFEKTIF —
+          // sesi office-door tidak membawa status admin, walau user-nya
+          // Administrator Pusat. Token tetap menyimpan nilai mentahnya.
+          (session.user as any).isSuperAdmin =
+            (token as any).isSuperAdmin === true && (token as any).loginDoor !== 'office';
+          (session.user as any).loginDoor = (token as any).loginDoor ?? 'office';
         }
         return session;
       },
