@@ -52,6 +52,7 @@ type DocWithRelations = Awaited<
     signerPhone: string | null;
     signerPosition: string | null;
     signingOrder: number;
+    signingGroup: number;
     signingStatus: string;
     accessToken: string | null;
     user: { id: string; name: string; phone: string | null };

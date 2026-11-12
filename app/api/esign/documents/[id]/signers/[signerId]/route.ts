@@ -48,6 +48,7 @@ export async function PATCH(
       where: { id: signer.id },
       data: {
         ...(d.signingOrder !== undefined ? { signingOrder: d.signingOrder } : {}),
+        ...(d.signingGroup !== undefined ? { signingGroup: d.signingGroup } : {}),
         ...(d.placementPage !== undefined ? { placementPage: d.placementPage } : {}),
         ...(d.placementX !== undefined ? { placementX: d.placementX } : {}),
         ...(d.placementY !== undefined ? { placementY: d.placementY } : {}),
@@ -62,7 +63,7 @@ export async function PATCH(
       userId: ctx.userId,
       action: 'UPDATE_ESIGN_SIGNER',
       description: `${ctx.name} memperbarui penandatangan ${signer.signerName} pada dokumen "${doc.title}" (${doc.documentNumber})`,
-      metadata: { signerId: signer.id, signingOrder: item.signingOrder },
+      metadata: { signerId: signer.id, signingOrder: item.signingOrder, signingGroup: item.signingGroup },
       req,
     });
 

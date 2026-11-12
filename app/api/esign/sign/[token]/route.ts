@@ -54,6 +54,13 @@ export async function GET(req: Request, { params }: { params: { token: string } 
     }
     const doc = signer.document;
 
+    // Jumlah grup penandatangan dokumen ini (untuk label "Grup N" di halaman sign).
+    const groupRows = await prisma.esignSigner.findMany({
+      where: { documentId: doc.id },
+      select: { signingGroup: true },
+    });
+    const totalGroups = new Set(groupRows.map((r) => r.signingGroup)).size;
+
     // Event "viewed" (best-effort, Fase 8): signer membuka halaman sign
     // dengan token valid. Dedup 24 jam via EsignAuditLog agar refresh /
     // pemuatan ulang PDF tidak membanjiri. Kegagalan di sini tidak boleh
@@ -102,6 +109,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         status: doc.status,
         expiresAt: doc.expiresAt,
         workflowType: doc.workflowType,
+        totalGroups,
         createdByName: doc.createdBy?.name ?? '—',
         organizationName: doc.organization?.name ?? '—',
       },
@@ -112,6 +120,7 @@ export async function GET(req: Request, { params }: { params: { token: string } 
         position: signer.signerPosition,
         department: signer.signerDepartment,
         signingOrder: signer.signingOrder,
+        signingGroup: signer.signingGroup,
         signingStatus: signer.signingStatus,
         signedAt: signer.signedAt,
       },

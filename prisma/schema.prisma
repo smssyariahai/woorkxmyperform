@@ -1276,6 +1276,12 @@ model EsignSigner {
   signerPosition   String?
   signerDepartment String?
   signingOrder     Int
+  // Grup penandatangan: satu grup menandatangani bersamaan (paralel);
+  // antar grup berurutan — grup berikutnya baru dapat giliran setelah
+  // grup sebelumnya selesai semua (hanya berlaku SEQUENTIAL).
+  // Migrasi backfill: signingGroup = signingOrder (tiap signer grup
+  // sendiri) agar dokumen lama berperilaku sama seperti sebelumnya.
+  signingGroup     Int       @default(0)
   signingStatus    String    @default("PENDING")
   placementPage    Int?
   placementX       Float?

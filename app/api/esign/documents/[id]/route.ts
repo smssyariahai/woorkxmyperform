@@ -29,7 +29,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
           select: {
             id: true, documentId: true, userId: true, signerName: true,
             signerEmail: true, signerPhone: true, signerPosition: true,
-            signerDepartment: true, signingOrder: true, signingStatus: true,
+            signerDepartment: true, signingOrder: true, signingGroup: true, signingStatus: true,
             placementPage: true, placementX: true, placementY: true,
             placementWidth: true, placementHeight: true, signedAt: true,
             rejectedReason: true,
@@ -46,7 +46,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     // tidak beredar di respons saat tidak bisa dipakai.
     const mySigner = await prisma.esignSigner.findFirst({
       where: { documentId: item.id, userId: ctx.userId },
-      select: { accessToken: true, tokenExpiresAt: true, signingStatus: true, signingOrder: true },
+      select: { accessToken: true, tokenExpiresAt: true, signingStatus: true, signingOrder: true, signingGroup: true },
     });
     const signing = ['PENDING_SIGNATURE', 'PARTIALLY_SIGNED'].includes(item.status);
     const mySigningStatus = mySigner?.signingStatus ?? null;

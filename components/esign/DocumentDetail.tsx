@@ -514,6 +514,7 @@ export function DocumentDetail({ id }: { id: string }) {
             signers={item.signers ?? []}
             canManage={item.status === 'DRAFT'}
             fileUrl={item.originalFilePath ? fileUrl : null}
+            workflowType={item.workflowType}
             onChanged={load}
           />
         </div>

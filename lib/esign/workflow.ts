@@ -1,12 +1,15 @@
 /**
  * Aturan giliran workflow penandatanganan.
  * - PARALLEL: semua penandatangan PENDING boleh menandatangani kapan saja.
- * - SEQUENTIAL: hanya penandatangan PENDING dengan signingOrder terkecil
- *   yang boleh menandatangani / menolak saat ini.
+ * - SEQUENTIAL: hanya penandatangan PENDING dari GRUP dengan signingGroup
+ *   terkecil yang boleh menandatangani / menolak saat ini — satu grup
+ *   menandatangani bersamaan, grup berikutnya baru dapat giliran setelah
+ *   grup sebelumnya selesai semua.
  */
 
 export interface SignerTurn {
   signingOrder: number;
+  signingGroup: number;
   signingStatus: string;
 }
 
@@ -19,8 +22,8 @@ export function isSignerTurn(
   if (workflowType === 'PARALLEL') return true;
   const pending = signers.filter((s) => s.signingStatus === 'PENDING');
   if (!pending.length) return false;
-  const minOrder = Math.min(...pending.map((s) => s.signingOrder));
-  return signer.signingOrder === minOrder;
+  const minGroup = Math.min(...pending.map((s) => s.signingGroup));
+  return signer.signingGroup === minGroup;
 }
 
 /** Status dokumen setelah satu penandatangan selesai (belum finalisasi PDF). */

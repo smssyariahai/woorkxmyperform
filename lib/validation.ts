@@ -194,6 +194,7 @@ export const esignDocumentSchema = z.object({
 export const esignSignerSchema = z.object({
   userId: z.string().min(1, 'Penandatangan wajib dipilih'),
   signingOrder: z.coerce.number().int().min(1).max(100),
+  signingGroup: z.coerce.number().int().min(1).max(100).optional(),
   placementPage: z.coerce.number().int().min(1).optional().nullable(),
   placementX: z.coerce.number().min(0).max(1).optional().nullable(),
   placementY: z.coerce.number().min(0).max(1).optional().nullable(),

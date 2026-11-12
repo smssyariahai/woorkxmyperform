@@ -64,7 +64,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     }
     const allSigners = await prisma.esignSigner.findMany({
       where: { documentId: doc.id },
-      select: { signingOrder: true, signingStatus: true },
+      select: { signingOrder: true, signingGroup: true, signingStatus: true },
     });
     if (!isSignerTurn(doc.workflowType, signer, allSigners)) {
       return apiErr('Belum giliran Anda memproses dokumen ini.', 409);

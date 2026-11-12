@@ -87,7 +87,7 @@ interface PendingDoc {
 /**
  * Dokumen yang sedang menunggu tanda tangan user di org ini: signer
  * PENDING + dokumen SIGNABLE + token masih berlaku + dokumen belum
- * kedaluwarsa + gilirannya sudah tiba (SEQUENTIAL: order PENDING
+ * kedaluwarsa + gilirannya sudah tiba (SEQUENTIAL: grup PENDING
  * terkecil; PARALLEL: semua PENDING).
  */
 async function findPendingSignableDocs(userId: string, orgId: string): Promise<PendingDoc[]> {
@@ -107,6 +107,7 @@ async function findPendingSignableDocs(userId: string, orgId: string): Promise<P
     select: {
       id: true,
       signingOrder: true,
+      signingGroup: true,
       signingStatus: true,
       document: {
         select: {
@@ -114,7 +115,7 @@ async function findPendingSignableDocs(userId: string, orgId: string): Promise<P
           title: true,
           documentNumber: true,
           workflowType: true,
-          signers: { select: { signingOrder: true, signingStatus: true } },
+          signers: { select: { signingOrder: true, signingGroup: true, signingStatus: true } },
         },
       },
     },

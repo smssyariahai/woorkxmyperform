@@ -54,6 +54,14 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     });
     if (orderDup) return apiErr(`Urutan tanda tangan ${d.signingOrder} sudah dipakai.`, 409);
 
+    // Grup: bila tidak dipilih, signer baru membuka grup (langkah) baru
+    // setelah grup terakhir — perilaku default tetap berurutan seperti dulu.
+    const maxGroup = await prisma.esignSigner.aggregate({
+      where: { documentId: doc.id },
+      _max: { signingGroup: true },
+    });
+    const signingGroup = d.signingGroup ?? (maxGroup._max.signingGroup ?? 0) + 1;
+
     const emp = await prisma.hrEmployee.findFirst({
       where: { organizationId: ctx.organizationId, email: membership.user.email },
       select: { position: true, department: true },
@@ -72,6 +80,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         signerDepartment:
           d.signerDepartment?.trim() || membership.department?.name || emp?.department || null,
         signingOrder: d.signingOrder,
+        signingGroup,
         placementPage: d.placementPage ?? null,
         placementX: d.placementX ?? null,
         placementY: d.placementY ?? null,
@@ -87,8 +96,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       documentId: doc.id,
       userId: ctx.userId,
       action: 'ADD_ESIGN_SIGNER',
-      description: `${ctx.name} menambahkan ${signer.signerName} sebagai penandatangan urutan ${signer.signingOrder} pada dokumen "${doc.title}" (${doc.documentNumber})`,
-      metadata: { signerId: signer.id, signerName: signer.signerName, signingOrder: signer.signingOrder },
+      description: `${ctx.name} menambahkan ${signer.signerName} sebagai penandatangan urutan ${signer.signingOrder} (Grup ${signer.signingGroup}) pada dokumen "${doc.title}" (${doc.documentNumber})`,
+      metadata: { signerId: signer.id, signerName: signer.signerName, signingOrder: signer.signingOrder, signingGroup: signer.signingGroup },
       req,
     });
 
@@ -107,5 +116,89 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   } catch (e: any) {
     if (e instanceof Response) return e;
     return apiErr('Gagal menambahkan penandatangan.', 500);
+  }
+}
+
+const reorderSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        signerId: z.string().min(1),
+        signingGroup: z.coerce.number().int().min(1).max(100),
+      })
+    )
+    .min(1)
+    .max(100),
+});
+
+/**
+ * PUT /api/esign/documents/[id]/signers — atur ulang urutan + grup
+ * penandatangan sekaligus (dipakai drag-and-drop di SignerManager).
+ * Urutan array = urutan tampil; signingOrder dihitung ulang 1..N.
+ * Grup dinormalisasi 1..N sesuai urutan kemunculan pertama.
+ * Hanya saat DRAFT; daftar harus memuat SEMUA penandatangan dokumen.
+ */
+export async function PUT(req: Request, { params }: { params: { id: string } }) {
+  try {
+    const ctx = await requirePermission('ESIGN_CREATE');
+    const doc = await prisma.esignDocument.findFirst({
+      where: { id: params.id, organizationId: ctx.organizationId },
+      select: { id: true, title: true, documentNumber: true, status: true },
+    });
+    if (!doc) return apiErr('Dokumen tidak ditemukan.', 404);
+    if (doc.status !== 'DRAFT') {
+      return apiErr('Urutan penandatangan hanya dapat diubah saat dokumen masih DRAFT.', 409);
+    }
+    const parsed = reorderSchema.safeParse(await req.json());
+    if (!parsed.success) return apiErr('Data tidak valid.', 422, parsed.error.flatten().fieldErrors);
+    const items = parsed.data.items;
+
+    const existing = await prisma.esignSigner.findMany({
+      where: { documentId: doc.id },
+      select: { id: true },
+    });
+    const existingIds = new Set(existing.map((s) => s.id));
+    const seen = new Set(items.map((it) => it.signerId));
+    if (
+      items.length !== existing.length ||
+      seen.size !== items.length ||
+      items.some((it) => !existingIds.has(it.signerId))
+    ) {
+      return apiErr('Daftar penandatangan tidak lengkap atau tidak valid.', 422);
+    }
+
+    const groupMap = new Map<number, number>();
+    const normalized = items.map((it, i) => {
+      if (!groupMap.has(it.signingGroup)) groupMap.set(it.signingGroup, groupMap.size + 1);
+      return {
+        signerId: it.signerId,
+        signingOrder: i + 1,
+        signingGroup: groupMap.get(it.signingGroup)!,
+      };
+    });
+
+    await prisma.$transaction(
+      normalized.map((n) =>
+        prisma.esignSigner.update({
+          where: { id: n.signerId },
+          data: { signingOrder: n.signingOrder, signingGroup: n.signingGroup },
+        })
+      )
+    );
+
+    await esignAudit({
+      organizationId: ctx.organizationId,
+      documentId: doc.id,
+      userId: ctx.userId,
+      action: 'UPDATE_ESIGN_SIGNER',
+      description: `${ctx.name} mengatur ulang urutan dan grup penandatangan (${groupMap.size} grup) pada dokumen "${doc.title}" (${doc.documentNumber})`,
+      metadata: { groups: groupMap.size, signers: normalized.length },
+      req,
+    });
+
+    return apiOk({ ok: true });
+  } catch (e: any) {
+    if (e instanceof Response) return e;
+    return apiErr('Gagal mengatur ulang penandatangan.', 500);
   }
 }

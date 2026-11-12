@@ -212,6 +212,9 @@ export function SignPage({ token }: { token: string }) {
                     Ditujukan kepada: <b className="text-ink">{info.signer.name}</b>
                     {info.signer.position ? ` · ${info.signer.position}` : ''}
                     {` · urutan ${info.signer.signingOrder}`}
+                    {info.document.totalGroups > 1
+                      ? ` · grup ${info.signer.signingGroup} dari ${info.document.totalGroups}`
+                      : ''}
                     {info.document.workflowType === 'SEQUENTIAL' ? ' · berurutan' : ' · bersamaan'}
                   </p>
                   <p className="mt-1 text-[13px] text-muted">Berlaku sampai: {tgl(info.document.expiresAt)}</p>

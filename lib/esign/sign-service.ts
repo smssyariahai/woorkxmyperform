@@ -112,7 +112,7 @@ export async function executeSign(input: ExecuteSignInput): Promise<ExecuteSignR
     }
     const allSigners = await prisma.esignSigner.findMany({
       where: { documentId: doc.id },
-      select: { signingOrder: true, signingStatus: true },
+      select: { signingOrder: true, signingGroup: true, signingStatus: true },
     });
     if (!isSignerTurn(doc.workflowType, signer, allSigners)) {
       throw new SignError(
@@ -194,7 +194,7 @@ export async function executeSign(input: ExecuteSignInput): Promise<ExecuteSignR
       const nextStatus = statusAfterSign(remaining);
       const updated = await tx.esignDocument.update({
         where: { id: doc.id },
-        data: { status: nextStatus, currentStep: signer.signingOrder },
+        data: { status: nextStatus, currentStep: signer.signingGroup },
       });
       return { updated, remaining };
     });
