@@ -1,0 +1,20 @@
+{
+  "id": "prophets",
+  "title": {
+    "id": "25 Nabi dan Rasul",
+    "en": "25 Prophets and Messengers",
+    "ar": "خمسة وعشرون نبياً ورسولاً"
+  },
+  "description": {
+    "id": "Kisah lengkap, mukjizat, dalil Al-Qur'an, dan hikmah 25 Nabi dan Rasul yang wajib diimani dalam Islam berdasarkan sumber-sumber terpercaya (Tafsir Ibnu Katsir, Qashashul Anbiya', Shahih Al-Bukhari & Muslim).",
+    "en": "Comprehensive stories, miracles, Quranic proofs, and wisdom of the 25 Prophets and Messengers based on authentic Islamic sources."
+  },
+  "total": 25,
+  "sources": [
+    "Tafsir Al-Qur'an Al-'Azhim karya Al-Hafizh Ibnu Katsir",
+    "Qashashul Anbiya' karya Al-Hafizh Ibnu Katsir",
+    "Shahih Al-Bukhari & Shahih Muslim (Kitab Ahaditsul Anbiya')",
+    "Sirah Nabawiyah Ar-Rahiqul Makhtum karya Syaikh Shafiyyurrahman Al-Mubarakfuri",
+    "Al-Bidayah wan Nihayah karya Al-Hafizh Ibnu Katsir"
+  ]
+}
