@@ -32,6 +32,15 @@ interface Session {
 
 const sessions = new Map<string, Session>();
 
+/**
+ * Hitung putus code 440 (sesi digantikan server/klien lain) beruntun per
+ * org — tanda ada server lain yang memakai nomor WA yang sama dengan
+ * kredensial yang sama. Jendela 5 menit: putus yang berjauhan dihitung
+ * ulang dari 1. Dipakai untuk memperingatkan perebutan sesi (lihat
+ * connection.update 'close' di bawah). TIDAK mengubah perilaku reconnect.
+ */
+const replacedStreak = new Map<string, { count: number; firstAt: number; lastAt: number }>();
+
 function sessionDir(orgId: string) {
   return path.join(process.cwd(), '.wa-sessions', orgId);
 }
@@ -334,6 +343,33 @@ export async function startSession(orgId: string): Promise<Session> {
         const code = (lastDisconnect?.error as any)?.output?.statusCode;
         const loggedOut = code === DisconnectReason.loggedOut;
         console.error(`[wa] koneksi terputus (code=${code}) org=${orgId}`);
+        if (code === 440) {
+          // 440 = sesi digantikan koneksi lain dengan kredensial yang sama
+          // (mis. server kedua — PC Windows — menjalankan bot WA dengan
+          // nomor yang sama). Pesan lalu ditangani acak oleh dua server
+          // dengan database berbeda, sehingga sesi percakapan (mis. PIN
+          // E-Sign yang sudah diminta) tidak ditemukan di server yang
+          // menerima pesan. Perilaku reconnect TIDAK diubah di sini —
+          // yang wajib dilakukan adalah mematikan WA di salah satu server
+          // (keputusan operasional); peringatan ini hanya membuatnya
+          // terlihat jelas di log.
+          const now = Date.now();
+          const prev = replacedStreak.get(orgId);
+          const cur =
+            prev && now - prev.lastAt < 5 * 60 * 1000
+              ? { count: prev.count + 1, firstAt: prev.firstAt, lastAt: now }
+              : { count: 1, firstAt: now, lastAt: now };
+          replacedStreak.set(orgId, cur);
+          if (cur.count === 3 || cur.count % 10 === 0) {
+            console.error(
+              `[wa] PERINGATAN: sesi WhatsApp org=${orgId} digantikan ${cur.count}x beruntun (code 440) ` +
+                `sejak ${new Date(cur.firstAt).toISOString()} — kemungkinan server lain (mis. PC Windows) ` +
+                `menjalankan bot WA dengan nomor yang sama. Hanya SATU server yang boleh menjalankan WhatsApp; ` +
+                `matikan sesi WA di server lainnya, kalau tidak pesan akan ditangani acak oleh dua server dan ` +
+                `sesi percakapan (mis. PIN E-Sign) akan hilang.`
+            );
+          }
+        }
         s.sock = null;
         s.starting = false;
         if (loggedOut) {

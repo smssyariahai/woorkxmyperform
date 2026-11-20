@@ -183,7 +183,7 @@ export function PlatformAdminClient() {
   const pagedAdmins = filteredAdmins.slice((safeAdminPage - 1) * ADMIN_PAGE_SIZE, safeAdminPage * ADMIN_PAGE_SIZE);
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-[1400px] mx-auto space-y-5">
+    <div className="max-w-[1400px] mx-auto space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-[22px] font-bold text-ink">Admin WOORK</h1>

@@ -1,19 +1,24 @@
 import { prisma } from '@/lib/db';
 import { findUserByPhone } from './qa';
 import { isSignerTurn } from './workflow';
-import { executeSign, SignError } from './sign-service';
+import { executeSign, savedSignaturePath, SignError } from './sign-service';
+import { pinAttemptsLeft } from './pin';
 import { requirePermissionForUser } from '@/lib/auth-helpers';
 import { ESIGN_APP_URL } from './links';
+import { existsSync } from 'fs';
 
 /**
  * Tanda tangan via WhatsApp AI-Agent.
  *
  * Alur percakapan (state machine, satu sesi aktif per user per org):
- *   user: "ok, saya ttd"
+ *   user: "saya ttd" / "saya ingin tanda tangan" / "tolong tanda tangani"
+ *         (semua ungkapan yang jelas bermaksud menandatangani diterima)
  *   bot : (1 dokumen) minta PIN / (>1 dokumen) daftar bernomor
  *   user: (bila >1) kirim nomor dokumen → bot minta PIN
  *   user: kirim PIN (4–12 digit)
  *   bot : konfirmasi — dokumen tertandatangani (tanda tangan tersimpan)
+ * Tanya isi dokumen ("itu dokumen apa ya?") BUKAN intent ini — ditangani
+ * cabang doc-qa (lib/esign/doc-qa.ts) sebelum user memutuskan menandatangani.
  *
  * Keamanan:
  * - PIN WAJIB sebelum tanda tangan; verifikasi memakai verifyPin yang
@@ -29,6 +34,16 @@ import { ESIGN_APP_URL } from './links';
  * ke room inbox SEBELUM redaksi (manager menyimpan + publish dulu, bot
  * jalan sesudahnya). Redaksi hanya mengubah isi di DB; pesan yang sudah
  * tampil di layar tidak bisa ditarik kembali.
+ *
+ * Pengulangan (retry) — sesi tetap berlaku bila user salah ketik:
+ * - Salah ketik PIN (401): sesi DIPERTAHANKAN + masa berlakunya diperpanjang
+ *   15 menit, dan bot memberitahu sisa percobaan sebelum PIN terkunci.
+ * - PIN terkunci (429): sesi DIPERTAHANKAN + diperpanjang, agar setelah
+ *   masa kunci habis user bisa langsung kirim ulang PIN tanpa mulai dari awal.
+ * - User mengetik konfirmasi lagi ("saya ttd") saat sedang diminta PIN:
+ *   bot mengingatkan langkah PIN-nya, sesi tetap jalan.
+ * - User mengetik konfirmasi lagi saat memilih dokumen: daftar dokumen
+ *   ditampilkan ulang dari awal (sesi lama diganti yang baru).
  */
 
 export interface EsignWaSignIncoming {
@@ -48,20 +63,44 @@ export const PIN_REDACTED_BODY = '[PIN — dihapus otomatis demi keamanan]';
 
 const SIGNABLE = ['PENDING_SIGNATURE', 'PARTIALLY_SIGNED'];
 
-const SIGN_KEYWORDS = ['ttd', 'tanda tangan', 'tandatangan', 'menandatangani'];
-const ACTION_MARKERS = ['saya', 'aku', 'mau', 'ok', 'oke', 'ya', 'baik', 'siap', 'setuju', 'tolong', 'bisa'];
+const SIGN_KEYWORDS = ['ttd', 'tanda tangan', 'tandatangan', 'menandatangani', 'tandatangani', 'ditandatangani'];
 const QUESTION_MARKERS = ['?', 'apakah', 'bagaimana', 'status', 'kapan', 'cek'];
+/** Pernyataan status/penolakan — BUKAN niat menandatangani ("belum", "tidak mau", ...). */
+const NOT_SIGN_RE = /\b(belum|belom|tidak|nggak|enggak|gak|ga|jangan|bukan)\b/;
 const DONE_CLAIM_RE = /sudah\s+(saya\s+|aku\s+)?(selesai|menandatangani|tanda tangan|tandatangan|ttd)/;
-const CANCEL_RE = /\b(batal|cancel|gak jadi|tidak jadi|nggak jadi)\b/;
+const CANCEL_RE = /\b(batal|cancel|gak jadi|tidak jadi|nggak jadi|enggak jadi)\b/;
 const PIN_RE = /^\d{4,12}$/;
+const PIN_WORD_RE = /\bpin\b/i;
+
+/**
+ * Ekstrak percobaan PIN dari satu pesan: PIN polos ("011201") atau PIN
+ * yang disebut eksplisit ("itu pin saya 011201", "PIN: 011201").
+ * Mengembalikan digit PIN, atau null bila pesan bukan percobaan PIN.
+ * TIDAK mengekstrak angka dari pesan lain (mis. "dokumen 3") — hanya
+ * bila pesannya memang berupa PIN atau menyebut kata "pin".
+ */
+export function extractPinAttempt(text: string): string | null {
+  const t = text.trim();
+  if (PIN_RE.test(t)) return t;
+  if (PIN_WORD_RE.test(t)) {
+    const m = t.match(/\d{4,12}/);
+    return m ? m[0] : null;
+  }
+  return null;
+}
 
 /**
  * Klasifikasi intent tanda tangan dari satu pesan.
- * SIGN  = user menyatakan mau menandatangani ("ok, saya ttd").
+ * SIGN  = user menyatakan mau menandatangani — TIDAK hanya "saya ttd" /
+ *         "ok ttd": semua ungkapan yang jelas-jelas bermaksud menandatangani
+ *         ("saya ingin tanda tangan", "tolong tanda tangani", "tanda tangan
+ *         sekarang", "yuk ttd", ...) diterima, selama bukan pertanyaan
+ *         ("dokumen ini sudah ditandatangani?"), klaim sudah selesai,
+ *         penolakan ("belum", "tidak mau"), atau pembatalan.
  * CANCEL = user membatalkan ("batal", "gak jadi").
- * null  = bukan intent ini — klaim selesai ("sudah ttd"), pertanyaan
- *         ("apakah dokumen saya sudah ditandatangani?"), atau pesan lain.
- *         null diserahkan ke cabang berikutnya (Q&A / AI biasa).
+ * null  = bukan intent ini — klaim selesai, pertanyaan, pernyataan status,
+ *         atau pesan lain. null diserahkan ke cabang berikutnya (Q&A isi
+ *         dokumen / Q&A status / AI biasa).
  */
 export function detectSignIntent(text: string): 'SIGN' | 'CANCEL' | null {
   const t = text.toLowerCase().trim();
@@ -70,11 +109,8 @@ export function detectSignIntent(text: string): 'SIGN' | 'CANCEL' | null {
   if (DONE_CLAIM_RE.test(t)) return null; // klaim selesai → urusan Q&A (cek DB)
   if (QUESTION_MARKERS.some((k) => t.includes(k))) return null;
   if (!SIGN_KEYWORDS.some((k) => t.includes(k))) return null;
-  // Pesan pendek yang hanya berisi kata kunci, mis. "ttd".
-  if (/^(ttd|tanda tangan|tandatangan|menandatangani)[!.]?$/.test(t)) return 'SIGN';
-  // Kata kunci + penanda aksi ("saya ttd", "ok, saya ttd", "mau tanda tangan").
-  if (ACTION_MARKERS.some((k) => new RegExp(`\\b${k}\\b`).test(t))) return 'SIGN';
-  return null;
+  if (NOT_SIGN_RE.test(t)) return null; // "belum tanda tangan", "tidak mau ttd", ...
+  return 'SIGN';
 }
 
 interface PendingDoc {
@@ -131,6 +167,22 @@ async function findPendingSignableDocs(userId: string, orgId: string): Promise<P
     }));
 }
 
+/**
+ * Apakah user ini pengirim PIN E-Sign yang sah: punya dokumen menunggu
+ * tanda tangan, atau punya profil E-Sign (PIN sudah diatur). Dipakai
+ * pengaman PIN di ai-responder untuk membedakan staf yang sedang
+ * mengirim PIN dari pelanggan biasa yang mengirim angka (mis. kode
+ * pesanan) — hanya staf E-Sign yang ditangani pengaman itu.
+ */
+export async function isEsignPinSender(userId: string, orgId: string): Promise<boolean> {
+  const docs = await findPendingSignableDocs(userId, orgId).catch(() => []);
+  if (docs.length > 0) return true;
+  const profile = await prisma.esignProfile
+    .findUnique({ where: { userId }, select: { id: true } })
+    .catch(() => null);
+  return !!profile;
+}
+
 /** Prasyarat tanda tangan via WA: PIN sudah diatur + tanda tangan tersimpan. */
 async function checkSignPrereqs(userId: string): Promise<{ ok: true } | { ok: false; message: string }> {
   const profile = await prisma.esignProfile.findUnique({
@@ -151,6 +203,17 @@ async function checkSignPrereqs(userId: string): Promise<{ ok: true } | { ok: fa
       message:
         `Anda belum memiliki tanda tangan tersimpan. Silakan simpan tanda tangan Anda terlebih dahulu di ` +
         `Pengaturan E-Sign (${ESIGN_APP_URL}/esign/settings), lalu kirim "saya ttd" lagi.`,
+    };
+  }
+  // Tercatat di DB belum tentu ada filenya: file tanda tangan dari server
+  // lama tidak ikut pindah saat migrasi database, jadi periksa juga di disk
+  // — JANGAN minta PIN dulu bila file aslinya sudah tidak ada.
+  if (!existsSync(savedSignaturePath(profile.signaturePath))) {
+    return {
+      ok: false,
+      message:
+        `File tanda tangan Anda yang tersimpan tidak ditemukan di server (kemungkinan hilang saat pemindahan server). ` +
+        `Silakan simpan ulang tanda tangan Anda di Pengaturan E-Sign (${ESIGN_APP_URL}/esign/settings), lalu kirim "saya ttd" lagi.`,
     };
   }
   return { ok: true };
@@ -193,21 +256,29 @@ async function deleteSession(userId: string, organizationId: string): Promise<vo
 }
 
 /**
- * Redaksi pesan PIN: ganti isi baris ConversationMessage dengan penanda,
- * HANYA bila isinya persis PIN yang baru diproses. Dipanggil setelah PIN
- * diproses (berhasil maupun gagal) agar PIN tidak menetap di riwayat chat.
+ * Redaksi pesan PIN: ganti isi baris ConversationMessage dengan penanda
+ * (bila isinya persis PIN), atau sensor digit PIN-nya bila PIN disebut di
+ * dalam kalimat ("itu pin saya 011201"). Dipanggil setelah PIN diproses
+ * (berhasil maupun gagal) dan oleh pengaman PIN di ai-responder, agar PIN
+ * tidak menetap di riwayat chat.
  */
-async function redactPinMessage(messageId: string | undefined, pin: string): Promise<void> {
-  if (!messageId) return;
+export async function redactPinMessage(messageId: string | undefined, pin: string): Promise<void> {
+  if (!messageId || !pin) return;
   try {
     const m = await prisma.conversationMessage.findUnique({
       where: { id: messageId },
       select: { body: true },
     });
-    if (m && m.body.trim() === pin) {
+    if (!m) return;
+    if (m.body.trim() === pin) {
       await prisma.conversationMessage.update({
         where: { id: messageId },
         data: { body: PIN_REDACTED_BODY },
+      });
+    } else if (m.body.includes(pin)) {
+      await prisma.conversationMessage.update({
+        where: { id: messageId },
+        data: { body: m.body.split(pin).join('••••••') },
       });
     }
   } catch {}
@@ -261,6 +332,42 @@ async function responseMessage(e: unknown): Promise<string | null> {
 }
 
 /**
+ * Mulai alur tanda tangan segar untuk user: 1 dokumen → langsung minta
+ * PIN; >1 dokumen → minta pilih nomor. Mengembalikan balasan, atau null
+ * bila tidak ada dokumen yang menunggu tanda tangan.
+ */
+async function startSignFlow(
+  userId: string,
+  organizationId: string,
+  conversationId: string
+): Promise<string | null> {
+  const docs = await findPendingSignableDocs(userId, organizationId);
+  if (docs.length === 0) return null;
+  if (docs.length === 1) {
+    const gate = await checkSignPrereqs(userId);
+    if (!gate.ok) return gate.message;
+    await upsertSession({
+      userId,
+      organizationId,
+      conversationId,
+      documentId: docs[0].documentId,
+      signerId: docs[0].signerId,
+      state: 'AWAITING_PIN',
+    });
+    return askPinMessage(docs[0]);
+  }
+  await upsertSession({
+    userId,
+    organizationId,
+    conversationId,
+    documentId: null,
+    signerId: null,
+    state: 'AWAITING_DOC',
+  });
+  return listDocsMessage(docs);
+}
+
+/**
  * Tangani satu pesan masuk WA untuk alur tanda tangan E-Sign.
  * Mengembalikan teks balasan, atau null bila pesan bukan bagian alur ini
  * (pemanggil melanjutkan ke cabang berikutnya: Q&A / AI biasa).
@@ -269,6 +376,10 @@ export async function handleEsignWaSign(orgId: string, msg: EsignWaSignIncoming)
   const text = msg.text.trim();
   if (!text) return null;
   const intent = detectSignIntent(text);
+  // Percobaan PIN: polos ("011201") atau disebut eksplisit
+  // ("itu pin saya 011201"). Dipakai cabang AWAITING_PIN dan jalur
+  // tanpa sesi di bawah.
+  const pinAttempt = extractPinAttempt(text);
   const user = await findUserByPhone(orgId, msg.phone).catch(() => null);
 
   // Muat sesi aktif (bila user dikenal). Sesi kedaluwarsa dihapus malas.
@@ -290,6 +401,14 @@ export async function handleEsignWaSign(orgId: string, msg: EsignWaSignIncoming)
     if (!session || !user) return null;
     await deleteSession(user.id, orgId);
     return 'Baik, proses tanda tangan dibatalkan. Kirim "saya ttd" lagi bila Anda ingin memulai kembali.';
+  }
+
+  // Konfirmasi diketik lagi saat memilih dokumen ("saya ttd" di tengah
+  // AWAITING_DOC): mulai ulang dari daftar dokumen — sesi lama diganti
+  // yang baru, alur SIGN segar di bawah yang jalan.
+  if (intent === 'SIGN' && user && session?.state === 'AWAITING_DOC') {
+    await deleteSession(user.id, orgId);
+    session = null;
   }
 
   if (session && user) {
@@ -325,10 +444,6 @@ export async function handleEsignWaSign(orgId: string, msg: EsignWaSignIncoming)
     }
 
     if (session.state === 'AWAITING_PIN') {
-      if (!PIN_RE.test(text)) {
-        return 'PIN harus 4–12 digit angka, silakan kirim ulang PIN Anda.';
-      }
-      const pin = text;
       const docRow = await prisma.esignDocument
         .findUnique({
           where: { id: session.documentId ?? '' },
@@ -341,6 +456,27 @@ export async function handleEsignWaSign(orgId: string, msg: EsignWaSignIncoming)
         title: docRow?.title ?? 'Dokumen',
         documentNumber: docRow?.documentNumber ?? '',
       };
+      // PIN bisa dikirim polos ("011201") atau disebut eksplisit
+      // ("itu pin saya 011201") — keduanya diverifikasi sebagai PIN.
+      // PIN didahulukan atas konfirmasi ("saya ttd 011201" ikut
+      // diverifikasi, bukan dijawab pengingat).
+      const pin = pinAttempt;
+      if (!pin) {
+        // Konfirmasi diketik lagi saat sedang diminta PIN ("saya ttd",
+        // "oke ttd"): ingatkan langkah PIN-nya — sesi tetap jalan, tidak
+        // perlu mulai dari awal.
+        if (intent === 'SIGN') {
+          return (
+            `Baik — Anda masih di langkah memasukkan PIN untuk dokumen "${docLabel.title}" (${docLabel.documentNumber}).\n\n` +
+            `Silakan kirim PIN tanda tangan Anda (4–12 digit angka). Sesi ini masih berlaku; ` +
+            `bila ingin mengulang dari awal, kirim 'batal' lalu 'saya ttd' lagi.`
+          );
+        }
+        return (
+          `Itu bukan PIN yang valid. PIN berupa 4–12 digit angka — silakan kirim ulang PIN Anda.\n\n` +
+          `Sesi Anda masih aktif untuk dokumen "${docLabel.title}" (${docLabel.documentNumber}), tidak perlu mulai dari awal.`
+        );
+      }
       try {
         await requirePermissionForUser(user.id, 'ESIGN_SIGN', orgId);
         const result = await executeSign({
@@ -364,9 +500,30 @@ export async function handleEsignWaSign(orgId: string, msg: EsignWaSignIncoming)
         }
         if (e instanceof SignError) {
           if (e.status === 401 || e.status === 429) {
-            // PIN salah / terkunci / terlalu banyak percobaan — sesi tetap,
-            // user boleh mencoba lagi (lockout PIN dari verifyPin berlaku).
-            return e.message;
+            // PIN salah / terkunci / terlalu banyak percobaan — sesi tetap
+            // berlaku: perpanjang masa berlakunya 15 menit agar user bisa
+            // mengulang tanpa mulai dari awal (lockout PIN dari verifyPin
+            // tetap berlaku).
+            await upsertSession({
+              userId: user.id,
+              organizationId: orgId,
+              conversationId: session.conversationId,
+              documentId: session.documentId,
+              signerId: session.signerId,
+              state: 'AWAITING_PIN',
+            });
+            if (e.status === 401) {
+              const left = pinAttemptsLeft(user.id);
+              return (
+                `PIN salah. Periksa kembali PIN tanda tangan Anda.\n\n` +
+                `Sisa percobaan sebelum PIN terkunci 15 menit: ${left}. ` +
+                `Silakan kirim ulang PIN yang benar — sesi Anda untuk dokumen "${docLabel.title}" (${docLabel.documentNumber}) masih berlaku.`
+              );
+            }
+            return (
+              e.message +
+              `\n\nSesi Anda tetap tersimpan — setelah masa tunggu habis, langsung kirim ulang PIN Anda, tidak perlu mulai dari awal.`
+            );
           }
           await deleteSession(user.id, orgId);
           return e.message;
@@ -378,6 +535,22 @@ export async function handleEsignWaSign(orgId: string, msg: EsignWaSignIncoming)
 
     // State tak dikenal — hapus sesi agar tidak macet.
     await deleteSession(user.id, orgId);
+  }
+
+  // PIN dikirim tanpa sesi aktif ("011201" / "itu pin saya 011201"):
+  // bila pengirim punya dokumen menunggu tanda tangan, mulai alur dari
+  // awal (pilih dokumen → minta PIN) daripada menyerahkan pesan ke AI
+  // umum yang akan mengulang PIN tanpa memverifikasinya.
+  if (intent !== 'SIGN' && pinAttempt && user) {
+    await redactPinMessage(msg.messageId, pinAttempt);
+    const restarted = await startSignFlow(user.id, orgId, msg.conversationId);
+    if (restarted) {
+      return (
+        'PIN yang Anda kirim tidak bisa dipakai karena sesi tanda tangan sebelumnya sudah berakhir. ' +
+        restarted
+      );
+    }
+    return 'Tidak ada dokumen yang menunggu tanda tangan Anda saat ini, jadi PIN yang Anda kirim tidak diproses.';
   }
 
   // Tanpa sesi aktif: hanya intent SIGN yang ditangani di sini.
@@ -394,30 +567,6 @@ export async function handleEsignWaSign(orgId: string, msg: EsignWaSignIncoming)
       'Silakan hubungi HRD untuk memastikan nomor Anda terdaftar.'
     );
   }
-  const docs = await findPendingSignableDocs(user.id, orgId);
-  if (docs.length === 0) {
-    return 'Tidak ada dokumen yang menunggu tanda tangan Anda saat ini.';
-  }
-  if (docs.length === 1) {
-    const gate = await checkSignPrereqs(user.id);
-    if (!gate.ok) return gate.message;
-    await upsertSession({
-      userId: user.id,
-      organizationId: orgId,
-      conversationId: msg.conversationId,
-      documentId: docs[0].documentId,
-      signerId: docs[0].signerId,
-      state: 'AWAITING_PIN',
-    });
-    return askPinMessage(docs[0]);
-  }
-  await upsertSession({
-    userId: user.id,
-    organizationId: orgId,
-    conversationId: msg.conversationId,
-    documentId: null,
-    signerId: null,
-    state: 'AWAITING_DOC',
-  });
-  return listDocsMessage(docs);
+  const started = await startSignFlow(user.id, orgId, msg.conversationId);
+  return started ?? 'Tidak ada dokumen yang menunggu tanda tangan Anda saat ini.';
 }

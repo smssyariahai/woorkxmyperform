@@ -1,17 +1,19 @@
 import { prisma } from '@/lib/db';
 import { findUserByPhone } from './qa';
 import { extractAndStoreDocumentText } from './extract-text';
+import { ESIGN_APP_URL } from './links';
 
 /**
  * Jawab isi dokumen E-Sign via WhatsApp AI-Agent (ringkasan / tanya isi).
  *
  * Alur: user bertanya ("ringkas dokumen PKWT Andi Wijaya", "apa isi
- * dokumen ini?") → cabang ini menyelesaikan dokumen yang dimaksud
- * (hanya yang user adalah signer ATAU creator-nya, di org nomor WA ini)
- * → pastikan teks dokumen terekstrak (on-demand bila masih NULL) →
- * kembalikan outcome untuk diproses pemanggil (ai-responder.ts):
+ * dokumen ini?", "itu dokumen apa ya?") → cabang ini menyelesaikan dokumen
+ * yang dimaksud (hanya yang user adalah signer ATAU creator-nya, di org
+ * nomor WA ini) → pastikan teks dokumen terekstrak (on-demand bila masih
+ * NULL) → kembalikan outcome untuk diproses pemanggil (ai-responder.ts):
  *   - { kind: 'reply', text }  : jawaban deterministik, TANPA LLM,
- *     tanpa potong kredit (tidak ditemukan / daftar pilihan / tanpa teks).
+ *     tanpa potong kredit (tidak ditemukan / daftar pilihan / tanpa teks /
+ *     deskripsi dokumen — "itu dokumen apa ya?").
  *   - { kind: 'llm', ... }     : butuh LLM (grounding teks dokumen) —
  *     pemanggil WAJIB reserveCredit DULU, baru panggil model, lalu
  *     finalizeCharge setelah kirim sukses / refundCredit bila gagal.
@@ -67,6 +69,32 @@ const CONTENT_KEYWORDS = [
 
 const DOC_ANCHORS = ['dokumen', 'esign', 'e-sign', 'e sign', 'kontrak', 'surat'];
 
+/**
+ * Intent "dokumen ini apa": user bertanya dulu sebelum memutuskan
+ * menandatangani ("itu dokumen apa ya?", "dokumen ini buat apa?").
+ * Butuh frasa tanya-deskripsi + penanda dokumen ("itu"/"ini" saja cukup
+ * bila frasanya sudah menyebut dokumen). Dijawab deterministik dari
+ * deskripsi + cuplikan isi PDF (describeDoc) — TANPA LLM, tanpa kredit.
+ */
+const DESCRIBE_PHRASES = [
+  'dokumen apa',
+  'apa itu',
+  'deskripsi',
+  'tentang',
+  'buat apa',
+  'untuk apa',
+  'isinya',
+  'isi dokumen',
+  'maksud dokumen',
+  'maksudnya',
+];
+
+export function detectDescribeIntent(text: string): boolean {
+  const t = text.toLowerCase();
+  if (!DESCRIBE_PHRASES.some((k) => t.includes(k))) return false;
+  return DOC_ANCHORS.some((k) => t.includes(k)) || t.includes('itu') || t.includes('ini');
+}
+
 const DOC_NUMBER_RE = /ESIGN\/\d{4}\/\d+/i;
 
 /** Kata yang diabaikan saat mengambil kata kunci judul dari pesan. */
@@ -98,6 +126,7 @@ interface AccessibleDoc {
   id: string;
   title: string;
   category: string;
+  description: string | null;
   documentNumber: string;
   status: string;
   originalFilePath: string | null;
@@ -116,6 +145,7 @@ async function findAccessibleDocs(userId: string, orgId: string): Promise<Access
       id: true,
       title: true,
       category: true,
+      description: true,
       documentNumber: true,
       status: true,
       originalFilePath: true,
@@ -149,10 +179,12 @@ function notFoundMessage(query: string): string {
   );
 }
 
-function pickListMessage(docs: AccessibleDoc[]): string {
+function pickListMessage(docs: AccessibleDoc[], describe = false): string {
   return (
     `Saya menemukan beberapa dokumen yang cocok:\n${formatDocList(docs)}\n\n` +
-    `Balas dengan menyebutkan nomor dokumennya, misalnya: "ringkas ${docs[0].documentNumber}".`
+    (describe
+      ? `Balas dengan menyebutkan nomor dokumennya, misalnya: "dokumen apa ${docs[0].documentNumber}?"`
+      : `Balas dengan menyebutkan nomor dokumennya, misalnya: "ringkas ${docs[0].documentNumber}".`)
   );
 }
 
@@ -201,7 +233,8 @@ export async function getEsignDocQaReply(
 ): Promise<DocQaOutcome> {
   const question = msg.text.trim();
   if (!question) return null;
-  if (!detectDocQaIntent(question)) return null;
+  const isDescribe = detectDescribeIntent(question);
+  if (!detectDocQaIntent(question) && !isDescribe) return null;
 
   const user = await findUserByPhone(orgId, msg.phone).catch(() => null);
   if (!user) {
@@ -223,7 +256,7 @@ export async function getEsignDocQaReply(
     const num = numMatch[0].toUpperCase();
     const doc = docs.find((d) => d.documentNumber.toUpperCase() === num);
     if (!doc) return { kind: 'reply', text: notFoundMessage(num) };
-    return answerForDoc(doc, question);
+    return answerForDoc(doc, question, isDescribe);
   }
 
   // 2. Cocokkan kata kunci judul (+ kategori) dengan dokumen milik user.
@@ -237,30 +270,71 @@ export async function getEsignDocQaReply(
       })
       .filter((s) => s.score > 0)
       .sort((a, b) => b.score - a.score || b.doc.createdAt.getTime() - a.doc.createdAt.getTime());
-    if (scored.length === 1) return answerForDoc(scored[0].doc, question);
+    if (scored.length === 1) return answerForDoc(scored[0].doc, question, isDescribe);
     if (scored.length > 1 && scored[0].score > scored[1].score) {
-      return answerForDoc(scored[0].doc, question);
+      return answerForDoc(scored[0].doc, question, isDescribe);
     }
     if (scored.length > 1) {
-      return { kind: 'reply', text: pickListMessage(scored.map((s) => s.doc).slice(0, LIST_LIMIT)) };
+      return { kind: 'reply', text: pickListMessage(scored.map((s) => s.doc).slice(0, LIST_LIMIT), isDescribe) };
     }
   }
 
   // 3. Tanpa penanda ("apa isi dokumen ini?"): satu-satunya dokumen user.
-  if (docs.length === 1) return answerForDoc(docs[0], question);
+  if (docs.length === 1) return answerForDoc(docs[0], question, isDescribe);
   if (docs.length > 1) {
     return {
       kind: 'reply',
       text:
         `Anda memiliki ${docs.length} dokumen. Dokumen yang mana yang ingin Anda tanyakan?\n` +
         `${formatDocList(docs.slice(0, LIST_LIMIT))}\n\n` +
-        `Balas dengan menyebutkan judul atau nomor dokumennya, misalnya: "ringkas ${docs[0].documentNumber}".`,
+        (isDescribe
+          ? `Balas dengan menyebutkan judul atau nomor dokumennya, misalnya: "dokumen apa ${docs[0].documentNumber}?"`
+          : `Balas dengan menyebutkan judul atau nomor dokumennya, misalnya: "ringkas ${docs[0].documentNumber}".`),
     };
   }
   return { kind: 'reply', text: notFoundMessage('') };
 }
 
-async function answerForDoc(doc: AccessibleDoc, question: string): Promise<DocQaOutcome> {
+/**
+ * Deskripsi deterministik sebuah dokumen: judul + nomor + kategori + status
+ * + deskripsi (bila ada) + cuplikan awal isi PDF. TANPA LLM, tanpa potong
+ * kredit — untuk user yang bertanya dulu ("itu dokumen apa ya?") sebelum
+ * memutuskan menandatangani.
+ */
+async function describeDoc(doc: AccessibleDoc): Promise<DocQaOutcome> {
+  const statusLabel: Record<string, string> = {
+    DRAFT: 'draf (belum dikirim)',
+    PENDING_APPROVAL: 'menunggu persetujuan',
+    PENDING_SIGNATURE: 'menunggu tanda tangan',
+    PARTIALLY_SIGNED: 'sebagian sudah ditandatangani',
+    SIGNED: 'sudah ditandatangani semua pihak',
+    COMPLETED: 'selesai',
+    REJECTED: 'ditolak',
+    CANCELLED: 'dibatalkan',
+    EXPIRED: 'kedaluwarsa',
+  };
+  const lines = [
+    `Dokumen "${doc.title}" (${doc.documentNumber})`,
+    `Kategori: ${doc.category} — Status: ${statusLabel[doc.status] ?? doc.status}`,
+  ];
+  if (doc.description?.trim()) lines.push(`\nDeskripsi: ${doc.description.trim()}`);
+  const text = await ensureText(doc);
+  if (text === null) {
+    lines.push('\nIsi PDF belum bisa saya baca saat ini. Silakan buka dokumennya di halaman E-Sign untuk membaca lengkap.');
+  } else if (text === '') {
+    lines.push('\nIsi PDF tidak memiliki teks yang bisa saya baca (kemungkinan hasil scan atau gambar). Silakan buka PDF-nya di halaman E-Sign.');
+  } else {
+    const clean = text.replace(/\s+/g, ' ').trim();
+    const excerpt = clean.length > 600 ? clean.slice(0, 600) + '…' : clean;
+    lines.push(`\nIsi dokumen:\n${excerpt}`);
+  }
+  lines.push(`\nBaca PDF lengkapnya di halaman E-Sign (${ESIGN_APP_URL}/esign).`);
+  lines.push(`\nBila sudah jelas dan Anda setuju, kirim "saya ttd" untuk menandatanganinya.`);
+  return { kind: 'reply', text: lines.join('\n') };
+}
+
+async function answerForDoc(doc: AccessibleDoc, question: string, describe = false): Promise<DocQaOutcome> {
+  if (describe) return describeDoc(doc);
   const text = await ensureText(doc);
   if (text === null) {
     return {

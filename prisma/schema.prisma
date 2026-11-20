@@ -61,6 +61,35 @@ model Organization {
   notes              Note[]
   officeLayouts      OfficeLayout[]
   notifications      Notification[]
+  quranBookmarks     QuranBookmark[]
+  prayerUserSettings PrayerUserSetting[]
+  goldPriceHistories GoldPriceHistory[]
+  goldSettings       GoldSetting[]
+  kirimUrls          KirimUrl[]
+  simulations        Simulation[]
+  announcements        Announcement[]
+  notificationPreferences NotificationPreference[]
+  talTasks             TalTask[]
+  talRoutineTemplates  TalRoutineTemplate[]
+  talMonthlyLocks      TalMonthlyLock[]
+  talLockReports       TalLockReport[]
+  talCutis             TalCuti[]
+  talHolidays          TalHoliday[]
+  talBadges            TalBadge[]
+  userBadgeProgress    UserBadgeProgress[]
+  userTrophies         UserTrophy[]
+  talSettings          TalSetting[]
+  talDeadlineSetting   TalDeadlineSetting?
+  talUserObligations   TalUserObligation[]
+  talTeamVisibilities  TalTeamVisibility[]
+  talAuditLogs         TalAuditLog[]
+  koperasiAnggota      KoperasiAnggota[]
+  koperasiSettings     KoperasiSetting[]
+  tickets              Ticket[]
+  archiveCategories    ArchiveCategory[]
+  archiveDocuments     ArchiveDocument[]
+  meetings             Meeting[]
+  meetingSettings      MeetingSetting?
   replyTemplates     ReplyTemplate[]
   roles              Role[]
   sessions           Session[]
@@ -245,6 +274,30 @@ model User {
   authoredNotes     Note[]                @relation("NoteAuthor")
   platformRoleAssignments PlatformRoleAssignment[]
   notifications     Notification[]
+  announcements        Announcement[]   @relation("AnnouncementAuthor")
+  notificationPreferences NotificationPreference[]
+  talTasks             TalTask[]
+  talRoutineTemplates  TalRoutineTemplate[]
+  talMonthlyLocks      TalMonthlyLock[]
+  talLockReports       TalLockReport[]
+  talCutis             TalCuti[]
+  userBadgeProgress    UserBadgeProgress[]
+  userTrophies         UserTrophy[]
+  talUserObligations   TalUserObligation[]
+  talTeamVisibilityAsViewer TalTeamVisibility[] @relation("TalTeamViewer")
+  talTeamVisibilityAsTarget TalTeamVisibility[] @relation("TalTeamTarget")
+  talTeamVisibilityCreated  TalTeamVisibility[] @relation("TalTeamCreator")
+  talAuditLogs         TalAuditLog[]
+  quranBookmarks    QuranBookmark[]
+  prayerUserSetting PrayerUserSetting?
+  simulations       Simulation[]
+  createdTickets    Ticket[]      @relation("TicketCreator")
+  assignedTickets   Ticket[]      @relation("TicketAssignee")
+  ticketReplies     TicketReply[]
+  meetingsHosted    Meeting[]     @relation("MeetingHost")
+  meetingParticipations MeetingParticipant[] @relation("MeetingParticipantUser")
+  archiveCategoriesCreated ArchiveCategory[] @relation("ArchiveCategoryCreator")
+  archiveDocuments  ArchiveDocument[] @relation("ArchiveDocumentUploader")
   resetTokens       PasswordResetToken[]
   createdTemplates  ReplyTemplate[]       @relation("TemplateAuthor")
   sessions          Session[]
@@ -433,6 +486,7 @@ model UserCustomFieldDef {
 
   @@index([organizationId])
 }
+
 
 // Nilai field custom per Membership (per kantor).
 model UserCustomValue {
@@ -1408,4 +1462,858 @@ model EsignNotification {
   recipient      User     @relation("EsignNotificationRecipient", fields: [recipientId], references: [id])
 
   @@unique([documentId, signerId, eventType])
+}
+
+// ---------------------------------------------------------------------------
+// Modul Islami — porting dari MyPerform (backup-main-2026-11-02).
+// Diterjemahkan dari SQL mentah db/postgres/001_schema.sql (quran_bookmarks,
+// prayer_user_settings) ke konvensi WOORK: id cuid, organizationId + userId,
+// createdAt/updatedAt. Auth & data layer backup (JWT/Firestore) TIDAK dibawa.
+// ---------------------------------------------------------------------------
+model QuranBookmark {
+  id              String       @id @default(cuid())
+  organizationId  String
+  userId          String
+  surahId         Int
+  surahName       String
+  surahArabic     String?
+  ayahNumber      Int
+  ayahArabic      String?
+  ayahTranslation String?
+  note            String?
+  isPublic        Boolean      @default(false)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId])
+  @@index([userId, surahId, ayahNumber])
+}
+
+model PrayerUserSetting {
+  id              String       @id @default(cuid())
+  organizationId  String
+  userId          String       @unique
+  imsak           String?
+  subuh           String?
+  terbit          String?
+  dhuha           String?
+  dzuhur          String?
+  ashar           String?
+  maghrib         String?
+  isya            String?
+  preAlarmMinutes Int?
+  enablePreAlarm  Boolean      @default(false)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+// ---------------------------------------------------------------------------
+// Modul Emas — porting MyPerform (Gelombang 2, 2026-11-12).
+// GoldPriceHistory: riwayat harga emas per tanggal (backup: gold_price_history,
+// price_date PK + prices/buyback_prices JSONB + harga_taksir_24k). Di WOORK
+// per-organisasi (unique [organizationId, priceDate]).
+// Simulation: simulasi gadai/PKE/elektronik yang disimpan user (backup:
+// simulations, data JSONB {dataString, expiresAt, memberName, itemMerk,
+// itemImei, plafond}).
+// GoldSetting: tarif & pengaturan emas per organisasi (backup: settings key
+// 'tarif_biaya' — biayaAdmin + jasaTitip tiers).
+// KirimUrl: daftar URL server tujuan kirim JSON scope simulasi (backup:
+// /api/pg/kirim/urls; dipakai bersama Kalkulator Gadai Emas & PKE).
+// ---------------------------------------------------------------------------
+model GoldPriceHistory {
+  id             String       @id @default(cuid())
+  organizationId String
+  priceDate      DateTime     @db.Date
+  prices         Json         @default("{}")
+  buybackPrices  Json         @default("{}")
+  hargaTaksir24K Float?
+  source         String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, priceDate])
+  @@index([organizationId, priceDate])
+}
+
+model Simulation {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  type           String
+  name           String
+  data           Json         @default("{}")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId, createdAt])
+}
+
+model GoldSetting {
+  id             String       @id @default(cuid())
+  organizationId String
+  key            String
+  value          Json
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+}
+
+model KirimUrl {
+  id             String       @id @default(cuid())
+  organizationId String
+  scope          String       @default("simulasi")
+  judul          String
+  url            String
+  deskripsi      String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, scope])
+}
+
+// ---------------------------------------------------------------------------
+// Modul Pengumuman — porting MyPerform (Gelombang 3, 2026-11-12).
+// Announcement: SATU tabel untuk draft, terjadwal, dan terkirim (backup:
+// announcement_drafts + scheduled_announcements + announcements —
+// ketiganya menyimpan kolom isi yang SAMA; yang membedakan hanya status
+// + scheduled_at/sent_at + hitung kirim email). Draft = status 'draft',
+// terjadwal = status 'scheduled' + scheduledAt, terkirim = 'published'
+// + sentAt. GlobalNotification backup TIDAK di-port sebagai tabel:
+// kontennya di sini, pengiriman/baca per user di Notification.
+// NotificationPreference: preferensi kanal notifikasi per user (backup:
+// notification_preferences, user_email PK + prefs JSONB). Di WOORK
+// per (organisasi, user); bentuk prefs mengikuti WAVE03_DESIGN.md §3.2:
+// { announcement: { app, email }, announcementUrgent: { app, email } }.
+// ---------------------------------------------------------------------------
+model Announcement {
+  id              String       @id @default(cuid())
+  organizationId  String
+  authorId        String
+  title           String
+  summary         String       @default("")
+  content         String       @default("")
+  imageUrl        String?
+  category        String       @default("announcement")
+  priority        String       @default("normal") // normal | penting | mendesak
+  route           String       @default("")
+  customRoute     String       @default("")
+  targetMode      String       @default("all") // all | targeted
+  target          Json         @default("{}")
+  filters         Json         @default("{}")
+  channels        Json         @default("{\"app\": true, \"email\": false}")
+  recipientEmails Json         @default("[]") // snapshot email penerima saat publish
+  status          String       @default("draft") // draft | scheduled | published
+  scheduledAt     DateTime?
+  sentAt          DateTime?
+  emailStatus     String       @default("not_requested") // not_requested | pending | sent | partial | failed | not_configured | skipped
+  emailSent       Int          @default(0)
+  emailFailed     Int          @default(0)
+  emailError      String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  author          User         @relation("AnnouncementAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, scheduledAt])
+}
+
+model NotificationPreference {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  prefs          Json         @default("{}")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+}
+// ---------------------------------------------------------------------------
+// Modul TAL (To Achieve List) — porting MyPerform (Gelombang 4, 2026-11-12).
+// Sumber SQL mentah: db/postgres/001_schema.sql (tal_tasks, tal_locks_reports,
+// tal_monthly_locks, tal_cuti, tal_notifications, tal_user_notification_settings,
+// tal_user_obligations, tal_deadline_settings, tal_settings,
+// tal_routine_templates, tal_holidays, tal_audit_logs, tal_badges,
+// user_badge_progress, user_trophy_room), 003_tal_locks_payload.sql (payload
+// tal_locks_reports), 004_tal_aux_payload.sql (payload tal_holidays +
+// tal_monthly_locks), 011_tal_team_visibility.sql.
+// Perbedaan vs backup (semuanya per-organisasi di WOORK; backup user flat
+// tanpa organisasi):
+// - tal_notifications TIDAK dibuat: pakai model Notification woork
+//   (type 'TAL_*', lihat WAVE04_FOUNDATION.md §5) — isi pesan + penerima
+//   sama, baca/dibaca lewat /api/notifications yang sudah ada.
+// - tal_user_notification_settings TIDAK dibuat: pakai NotificationPreference
+//   Gelombang 3 (prefs Json; kunci 'tal' berisi seluruh TalUserNotification-
+//   Settings backup — DND, kanal, trigger pengingat).
+// - global_notifications backup TIDAK dibuat: padanannya Announcement
+//   Gelombang 3 (publish -> Notification per penerima).
+// - legacy_id backup TIDAK dibawa (tidak ada impor data legacy; pola Gel. 2).
+// - Payload JSONB 003/004 dilipat ke kolom `payload` Json di model terkait.
+// - Field `progress` tal_tasks TIDAK disimpan (004: tidak punya kolom di
+//   backup dan tidak dipaksakan ke kolom lain) — dihitung client-side.
+// - TalSetting hanya dipakai backup sebagai fallback kunci
+//   'tal_deadline_settings'; di WOORK pakai TalDeadlineSetting.
+// ---------------------------------------------------------------------------
+model TalTask {
+  id                    String    @id @default(cuid())
+  organizationId        String
+  // type: daily | weekly | monthly
+  type                  String
+  isAdditional          Boolean   @default(false)
+  originalTaskId        String?
+  taskDate              DateTime? @db.Date
+  taskTime              String?
+  weekNumber            Int?
+  weekYear              Int?
+  month                 Int?
+  year                  Int?
+  title                 String
+  description           String?
+  parentId              String?
+  parentTitle           String?
+  // category: result | non_result
+  category              String    @default("non_result")
+  targetValue           Float?
+  targetUnit            String?
+  targetCustomUnit      String?
+  // priority: low | medium | high
+  priority              String    @default("medium")
+  assignedTo            Json      @default("[]")
+  assignedUserEmails    Json      @default("[]")
+  assignedUsers         Json      @default("[]")
+  // status: todo | pending | on_progress | done
+  status                String    @default("todo")
+  notes                 String?
+  attachments           Json      @default("[]")
+  actualValue           Float?
+  blockerCategory       String?
+  blockerDescription    String?
+  blockerReportedAt     DateTime?
+  isRolledOver          Boolean   @default(false)
+  rolloverAction        String?
+  rolloverTargetDate    DateTime? @db.Date
+  rolloverTargetWeek    Int?
+  rolloverTargetYear    Int?
+  rolloverTargetMonth   Int?
+  cancelNotes           String?
+  enableReminder        Boolean   @default(false)
+  reminderType          String?
+  reminderMinutesBefore Int?
+  reminderTime          String?
+  reminderLastTriggeredAt DateTime?
+  orderNo               Int?
+  userId                String
+  userEmail             String?
+  userName              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  originalTask          TalTask?     @relation("TalTaskOriginal", fields: [originalTaskId], references: [id], onDelete: SetNull)
+  rolledOverTasks       TalTask[]    @relation("TalTaskOriginal")
+  parent                TalTask?     @relation("TalTaskParent", fields: [parentId], references: [id], onDelete: SetNull)
+  childTasks            TalTask[]    @relation("TalTaskParent")
+
+  @@index([organizationId, userId, year, month])
+  @@index([organizationId, userId, taskDate])
+  @@index([organizationId, userId, weekYear, weekNumber])
+  @@index([organizationId, status])
+}
+
+model TalRoutineTemplate {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String?
+  name           String
+  description    String?
+  categoryTag    String?
+  color          String?
+  isPreset       Boolean  @default(false)
+  // Isi lengkap template (backup: kolom template JSONB): { monthlyTasks[],
+  // weeklyTasks[], dailyTasks[] } mengikuti TalRoutineTemplate backup
+  // (src/types/tal.ts) — tiap task: title, description, category, priority,
+  // targetValue/Unit/CustomUnit, time, dayOffset, parent*TempId, reminder.
+  template       Json     @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId])
+  @@index([organizationId, isPreset])
+}
+
+model TalMonthlyLock {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  year           Int
+  month          Int
+  isLocked       Boolean  @default(false)
+  lockedAt       DateTime?
+  // Payload 004: manualOverride, lockedBy, unlockedAt, unlockedBy, reason.
+  payload        Json     @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId, year, month])
+  @@index([organizationId, year, month])
+}
+
+model TalLockReport {
+  id             String   @id @default(cuid())
+  organizationId String
+  // scope: daily | weekly | monthly; scopeKey: "2026-09-07" | "2026-W37" | "2026-09"
+  scope          String
+  scopeKey       String
+  userId         String
+  isPlanLocked   Boolean  @default(false)
+  planLockedAt   DateTime?
+  isReported     Boolean  @default(false)
+  reportedAt     DateTime?
+  // Payload 003 + seluruh metrik TalScopeLockReport (src/types/tal.ts):
+  // lockedBy/reportedBy, lockNotes/reportNotes, taskCount, planScore,
+  // planDeadlineAt, progressScore, reportScore, reportDeadlineAt,
+  // totalTaskCount/mainTaskCount/additionalTaskCount/doneTaskCount/
+  // pendingTaskCount/scorePercent/mainDoneCount/mainPendingCount/
+  // additionalDoneCount/additionalPendingCount, reportSummary{...},
+  // isCuti, cutiReason, infoTglTask, date/weekNumber/weekYear/month/year.
+  payload        Json     @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, scope, scopeKey, userId])
+  @@index([organizationId, userId, scope])
+  @@index([organizationId, scope, scopeKey])
+}
+
+model TalCuti {
+  id             String   @id @default(cuid())
+  organizationId String
+  cutiDate       DateTime @db.Date
+  userId         String
+  userName       String?
+  reason         String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId, cutiDate])
+  @@index([organizationId, cutiDate])
+}
+
+model TalHoliday {
+  id             String   @id @default(cuid())
+  organizationId String
+  holidayDate    DateTime @db.Date
+  name           String?
+  // Payload 004: description, category (nasional | cuti_bersama | kantor),
+  // isRecurringYearly, createdBy.
+  payload        Json     @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, holidayDate])
+  @@index([organizationId])
+}
+
+model TalBadge {
+  id             String   @id @default(cuid())
+  organizationId String
+  // badgeId = kode unik katalog, mis. FLASH_PLANNER (backup: badge_id UNIQUE)
+  badgeId        String
+  name           String?
+  description    String?
+  // Payload: icon (id lucide), iconColor, category (perencanaan | eksekusi |
+  // disiplin | kolaborasi | kualitas), metricType, metricUnit, max_level,
+  // levels[] {level, tier, target, customLabel}, status
+  // (active | inactive | archived), isGlow, stagedConfig.
+  payload        Json     @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, badgeId])
+  @@index([organizationId])
+}
+
+model UserBadgeProgress {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  badgeId        String
+  seasonYear     Int
+  // Payload UserBadgeProgress (src/types/talGamification.ts): currentValue,
+  // currentLevel (0..max_level), isMastered, nextTarget, progressPercent,
+  // remainingToNext, lastUpdated, levelAchievedDates {level: ISO}.
+  payload        Json     @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId, badgeId, seasonYear])
+  @@index([organizationId, userId, seasonYear])
+}
+
+model UserTrophy {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  badgeId        String?
+  // Payload TrophyArchiveItem: badgeCode, badgeTitle, badgeIcon,
+  // badgeCategory, highestLevel, highestTier, finalValue, seasonYear,
+  // achievedAt, userEmail, userName.
+  payload        Json     @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId, createdAt])
+}
+
+model TalSetting {
+  id             String   @id @default(cuid())
+  organizationId String
+  key            String
+  value          Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+}
+
+model TalDeadlineSetting {
+  id             String   @id @default(cuid())
+  organizationId String   @unique
+  // settings Json = seluruh TalDeadlineSettings backup (src/types/tal.ts):
+  // planLockWeeklyDays/Time, planLockMonthlyDays/Time, reportDailyDays/Time,
+  // reportWeeklyDays/Time, reportMonthlyDays/Time, systemLockMonthlyDays/Time,
+  // systemLockEnabled, updatedBy. Backup: tal_deadline_settings (id TEXT PK +
+  // settings JSONB) + fallback tal_settings key 'tal_deadline_settings'.
+  settings       Json     @default("{}")
+  updatedBy      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model TalUserObligation {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  userEmail      String?
+  userName       String?
+  daily          Boolean  @default(true)
+  weekly         Boolean  @default(true)
+  monthly        Boolean  @default(true)
+  updatedBy      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+}
+
+model TalTeamVisibility {
+  id             String   @id @default(cuid())
+  organizationId String
+  viewerId       String
+  targetId       String
+  createdById    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  viewer         User         @relation("TalTeamViewer", fields: [viewerId], references: [id], onDelete: Cascade)
+  target         User         @relation("TalTeamTarget", fields: [targetId], references: [id], onDelete: Cascade)
+  createdBy      User?        @relation("TalTeamCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, viewerId, targetId])
+  @@index([organizationId, viewerId])
+  @@index([organizationId, targetId])
+}
+
+model TalAuditLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String?
+  // actionType: delete_tasks | unlock_plans | reset_reports |
+  // update_obligations | lock_month_lock | unlock_month_lock |
+  // reset_month_lock_auto (TalAuditLog backup, src/types/tal.ts).
+  actionType     String
+  actionTitle    String   @default("")
+  adminEmail     String   @default("")
+  adminName      String   @default("")
+  reason         String   @default("")
+  targetSummary  String   @default("")
+  affectedCount  Int      @default(0)
+  details        Json     @default("{}")
+  createdAt      DateTime @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([organizationId, actionType])
+}
+
+// ---------------------------------------------------------------------------
+// Koperasi — porting MyPerform Gelombang 5 (fondasi 2026-11-13).
+// Sumber: db/postgres/012_koperasi_anggota.sql (backup-main-2026-11-02).
+// Foto KTP / foto anggota / tanda tangan di backup disimpan sebagai data URL
+// (kolom foto_* TEXT); di WOORK disimpan sebagai FILE di disk
+// (uploads/koperasi/, pola app/api/customers/photo +
+// app/api/esign/profile/signature) — kolom foto_* di sini menyimpan PATH
+// RELATIF (mis. "ktp-<id>.jpg"), BUKAN data URL.
+// ---------------------------------------------------------------------------
+
+model KoperasiAnggota {
+  id                  String    @id @default(cuid())
+  organizationId      String
+  cabang              String    @default("")
+  nik                 String
+  namaLengkap         String
+  tempatLahir         String    @default("")
+  tanggalLahir        DateTime? @db.Date
+  jenisKelamin        String    @default("")
+  alamatKtp           String    @default("") @db.Text
+  noHp                String    @default("")
+  namaIbuKandung      String    @default("")
+  pekerjaan           String    @default("")
+  statusPerkawinan    String    @default("")
+  penghasilanBulanan  String    @default("")
+  tujuanKeanggotaan   String    @default("")
+  fotoKtpPath         String    @default("")
+  fotoAnggotaPath     String    @default("")
+  tandaTanganPath     String    @default("")
+  setujuMobileBanking Boolean   @default(false)
+  setujuPernyataan    Boolean   @default(false)
+  // Status kepemilikan produk; diisi modul Rekening Simpanan &
+  // Pembiayaan saat modul itu tersedia (saat ini selalu false).
+  hasSimpanan         Boolean   @default(false)
+  hasPinjaman         Boolean   @default(false)
+  createdBy           String    @default("")
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, nik])
+  @@index([organizationId, namaLengkap])
+  @@index([organizationId, cabang])
+}
+
+// Setting key-value per organisasi untuk modul Koperasi.
+// key 'kirim_json': { urls: [{id, judul, url, deskripsi}], defaultUrlId: string|null }
+// key 'cabang': { cabang: string[] }
+model KoperasiSetting {
+  id             String   @id @default(cuid())
+  organizationId String
+  key            String
+  settings       Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, key])
+}
+
+// ---------------------------------------------------------------------------
+// Modul Tiket — baru (Bagian 3, 2026-11-19).
+// Tiket dukungan internal per kantor: dibuat user kantor, ditangani admin
+// kantor (TIKET_MANAGE), diawasi Administrator Pusat lewat /admin/tiket.
+// Tanpa lampiran file di v1. Kategori/prioritas/status disimpan sebagai
+// string (pola AgentTask/TalTask), bukan enum — nilai baru tidak butuh
+// migrasi. Notifikasi memakai model Notification (type 'TIKET').
+// ---------------------------------------------------------------------------
+model Ticket {
+  id             String       @id @default(cuid())
+  organizationId String
+  createdById    String
+  title          String
+  category       String       @default("Umum") // Teknis/IT | HRD | Keuangan | Umum
+  priority       String       @default("normal") // rendah | normal | tinggi | mendesak
+  status         String       @default("TERBUKA") // TERBUKA | DIPROSES | MENUNGGU_BALASAN | SELESAI | DITUTUP
+  description    String       @default("") @db.Text
+  assignedToId   String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      User         @relation("TicketCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  assignedTo     User?        @relation("TicketAssignee", fields: [assignedToId], references: [id])
+  replies        TicketReply[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+  @@index([createdById])
+  @@index([assignedToId])
+}
+
+model TicketReply {
+  id        String   @id @default(cuid())
+  ticketId  String
+  authorId  String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Modul E-Arsip — baru (2026-11-19, Item 2).
+// Arsip dokumen internal per kantor: kategori (mendukung subkategori via
+// self-relation parentId) + dokumen dengan satu file per dokumen.
+// Kerahasiaan/confidentiality & status disimpan sebagai string (pola
+// Ticket), bukan enum — nilai baru tidak butuh migrasi.
+// confidentiality: PUBLIC | INTERNAL | CONFIDENTIAL. Dokumen CONFIDENTIAL
+// hanya boleh dilihat/diunduh Super Admin atau pemegang EARSIP_MANAGE
+// (ditegakkan di BACKEND pada setiap endpoint baca/file, lib/earsip).
+// status: ACTIVE | ARCHIVED (arsipkan = ubah status, bukan hapus).
+// File disimpan di uploads/earsip/<organizationId>/, DB hanya menyimpan
+// path relatif (pola Koperasi). TIDAK ADA tabel versi dokumen (ditunda)
+// dan TIDAK ADA tabel log aktivitas arsip — aktivitas dicatat ke AuditLog
+// existing via lib/audit.ts.
+// ---------------------------------------------------------------------------
+model ArchiveCategory {
+  id             String            @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  parentId       String?
+  createdById    String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  parent         ArchiveCategory?  @relation("ArchiveCategoryParent", fields: [parentId], references: [id], onDelete: Cascade)
+  children       ArchiveCategory[] @relation("ArchiveCategoryParent")
+  createdBy      User?             @relation("ArchiveCategoryCreator", fields: [createdById], references: [id])
+  documents      ArchiveDocument[]
+
+  @@index([organizationId])
+  @@index([organizationId, parentId])
+}
+
+model ArchiveDocument {
+  id              String          @id @default(cuid())
+  organizationId  String
+  categoryId      String
+  title           String
+  documentNumber  String?
+  documentDate    DateTime?
+  description     String?         @db.Text
+  filePath        String // path relatif: uploads/earsip/<organizationId>/<file>
+  fileName        String
+  fileSize        Int
+  mimeType        String
+  uploaderId      String
+  confidentiality String          @default("INTERNAL") // PUBLIC | INTERNAL | CONFIDENTIAL
+  status          String          @default("ACTIVE") // ACTIVE | ARCHIVED
+  uploadedAt      DateTime        @default(now())
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  category        ArchiveCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  uploader        User            @relation("ArchiveDocumentUploader", fields: [uploaderId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([organizationId, categoryId])
+  @@index([organizationId, status])
+  @@index([organizationId, confidentiality])
+  @@index([organizationId, uploadedAt])
+  @@index([uploaderId])
+}
+
+model Meeting {
+  id                  String   @id @default(cuid())
+  organizationId      String
+  hostId              String // User pembuat/host
+  title               String
+  description         String?  @db.Text
+  startsAt            DateTime // simpan UTC; tampilkan Asia/Jakarta (tidak ada timezone di User)
+  endsAt              DateTime?
+  timezone            String   @default("Asia/Jakarta")
+  meetingType         String   @default("INTERNAL") // INTERNAL | EXTERNAL | DEPARTMENT | BRANCH | MANAGEMENT | TRAINING | WEBINAR | INTERVIEW
+  locationType        String   @default("ONLINE") // ONLINE | OFFLINE | HYBRID
+  joinUrl             String? // tautan eksternal (Zoom/Meet) bila dipakai; kosong bila video internal
+  location            String? // alamat bila offline/hybrid
+  status              String   @default("SCHEDULED") // DRAFT | SCHEDULED | ONGOING | COMPLETED | CANCELLED
+  password            String? // hash bila meeting memakai password (jangan simpan plaintext)
+  waitingRoom         Boolean  @default(false)
+  allowJoinBeforeHost Boolean  @default(false)
+  muteOnEntry         Boolean  @default(false)
+  allowScreenShare    Boolean  @default(true)
+  allowChat           Boolean  @default(true)
+  allowRecording      Boolean  @default(false)
+  isRecurring         Boolean  @default(false)
+  recurrenceRule      String? // RRULE; atau Json — putuskan di Fase 2
+  roomName            String?  @unique // mis. "meet_<id>"; nama room video internal (agnostik engine)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  host                User               @relation("MeetingHost", fields: [hostId], references: [id])
+  participants        MeetingParticipant[]
+  agendaItems         MeetingAgendaItem[]
+  notes               MeetingNote[]
+  recordings          MeetingRecording[]
+  chatMessages        MeetingChatMessage[]
+  sessions            MeetingSession[]
+  guestTokens         MeetingGuestToken[]
+
+  @@index([organizationId, startsAt])
+  @@index([organizationId, status])
+  @@index([hostId])
+}
+
+model MeetingParticipant {
+  id                 String   @id @default(cuid())
+  meetingId          String
+  userId             String? // null = tamu eksternal (snapshot di bawah, pola EsignSigner)
+  guestName          String?
+  guestEmail         String?
+  guestPhone         String?
+  snapshotPosition   String? // jabatan saat diundang
+  snapshotDepartment String?
+  snapshotBranch     String? // string bebas (tidak ada model Branch)
+  role               String   @default("PARTICIPANT") // HOST | CO_HOST | PARTICIPANT
+  isRequired         Boolean  @default(true)
+  status             String   @default("INVITED") // INVITED | ACCEPTED | DECLINED | TENTATIVE | ATTENDED | ABSENT
+  respondedAt        DateTime?
+  joinedAt           DateTime?
+  leftAt             DateTime?
+  meeting            Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user               User?    @relation("MeetingParticipantUser", fields: [userId], references: [id])
+  guestToken         MeetingGuestToken?
+
+  @@unique([meetingId, userId]) // tamu (userId null) perlu penanganan khusus di Fase 2
+  @@index([meetingId])
+  @@index([userId])
+}
+
+// Token tamu publik — pola EsignSigner.accessToken (randomUUID, TTL, cabut dengan null).
+model MeetingGuestToken {
+  id             String    @id @default(cuid())
+  meetingId      String
+  participantId  String    @unique
+  accessToken    String    @unique
+  tokenExpiresAt DateTime?
+  scope          String    @default("JOIN") // JOIN | VIEW
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  meeting        Meeting            @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  participant    MeetingParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId])
+}
+
+model MeetingSession { // jejak join/leave per kehadiran (bukan sesi NextAuth)
+  id              String   @id @default(cuid())
+  meetingId       String
+  participantId   String?
+  userId          String?
+  guestName       String?
+  joinedAt        DateTime @default(now())
+  leftAt          DateTime?
+  durationSeconds Int?
+  meeting         Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId])
+}
+
+model MeetingChatMessage { // chat DALAM meeting — terpisah dari chat kantor (Conversation wajib customerId)
+  id          String   @id @default(cuid())
+  meetingId   String
+  senderId    String? // null = tamu (nama dari snapshot)
+  senderName  String
+  body        String   @db.Text
+  isPrivate   Boolean  @default(false)
+  recipientId String? // bila private message
+  createdAt   DateTime @default(now())
+  meeting     Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId, createdAt])
+}
+
+model MeetingRecording { // pola ArchiveDocument (file + kerahasiaan)
+  id              String   @id @default(cuid())
+  meetingId       String
+  filePath        String // relatif uploads/meet/<orgId>/ — pola ArchiveDocument.filePath
+  fileName        String
+  fileSize        Int
+  mimeType        String
+  durationSeconds Int?
+  uploaderId      String
+  confidentiality String   @default("INTERNAL") // PUBLIC | INTERNAL | CONFIDENTIAL
+  status          String   @default("ACTIVE") // ACTIVE | ARCHIVED
+  createdAt       DateTime @default(now())
+  meeting         Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId])
+}
+
+model MeetingSetting { // pengaturan per kantor (pola KoperasiSetting)
+  id                   String   @id @default(cuid())
+  organizationId       String   @unique
+  maxDurationMinutes   Int      @default(120)
+  maxParticipants      Int      @default(50)
+  waitingRoomDefault   Boolean  @default(false)
+  allowGuest           Boolean  @default(true)
+  allowScreenShare     Boolean  @default(true)
+  allowChat            Boolean  @default(true)
+  allowRecording       Boolean  @default(false)
+  recordingRetentionDays Int    @default(30)
+  defaultTimezone      String   @default("Asia/Jakarta")
+  updatedAt            DateTime @updatedAt
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model MeetingAgendaItem {
+  id              String   @id @default(cuid())
+  meetingId       String
+  title           String
+  description     String?  @db.Text
+  durationMinutes Int?
+  order           Int      @default(0)
+  presenterId     String?
+  status          String   @default("PENDING")
+  meeting         Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId])
+}
+
+model MeetingNote { // notulen — pola TicketReply
+  id        String   @id @default(cuid())
+  meetingId String
+  authorId  String
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  meeting   Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId])
 }

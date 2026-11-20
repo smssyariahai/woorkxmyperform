@@ -52,7 +52,7 @@ export function SuperAuditClient() {
   }, [load]);
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-[1400px] mx-auto space-y-5">
+    <div className="max-w-[1400px] mx-auto space-y-5">
       <div>
         <h1 className="text-[22px] font-bold text-ink flex items-center gap-2">
           <ShieldCheck className="h-6 w-6 text-brand" /> Audit Global

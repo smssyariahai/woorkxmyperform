@@ -1,8 +1,8 @@
 import { prisma } from '@/lib/db';
 import { getNineRouterConfig, chatCompletion } from './ninerouter';
 import { getOrCreateBotConfig, reserveCredit, finalizeCharge, refundCredit, markFailed } from './credits';
-import { getEsignQaReply } from '@/lib/esign/qa';
-import { handleEsignWaSign } from '@/lib/esign/wa-sign';
+import { getEsignQaReply, findUserByPhone } from '@/lib/esign/qa';
+import { handleEsignWaSign, extractPinAttempt, redactPinMessage, isEsignPinSender } from '@/lib/esign/wa-sign';
 import { getEsignDocQaReply, buildDocQaMessages } from '@/lib/esign/doc-qa';
 
 /**
@@ -99,6 +99,37 @@ export async function maybeAiReply(
       model: cfg.model,
     });
     return { handled: true, reply: esignWaSignReply };
+  }
+
+  // 3a2. Pengaman PIN: pesan yang tampak seperti percobaan PIN ("011201"
+  // atau "itu pin saya 011201") yang TIDAK ditangani cabang signing di
+  // atas (mis. sesi tidak ditemukan / sudah berakhir, atau handler
+  // melempar error) JANGAN diteruskan ke LLM — model akan mengulang PIN
+  // di balasan (bocor) dan seolah "mencatatnya" tanpa verifikasi.
+  // Bila pengirim adalah staf E-Sign (punya dokumen menunggu / profil
+  // E-Sign), jawab dengan aman TANPA mengulang angka dan arahkan
+  // mengulang dari "saya ttd". Bukan staf → biarkan jatuh ke AI biasa
+  // (bisa jadi kode pelanggan biasa, mis. kode pesanan).
+  const pinAttempt = extractPinAttempt(text);
+  if (pinAttempt) {
+    const pinUser = await findUserByPhone(orgId, msg.phone).catch(() => null);
+    if (pinUser && (await isEsignPinSender(pinUser.id, orgId).catch(() => false))) {
+      await redactPinMessage(msg.messageId, pinAttempt);
+      const safeReply =
+        'Saya menerima pesan berisi PIN, tapi sesi tanda tangan tidak ditemukan atau sudah berakhir, ' +
+        'jadi PIN tersebut tidak diproses dan tidak saya simpan.\n\n' +
+        'Silakan kirim "saya ttd" untuk memulai lagi, lalu kirim PIN Anda saat diminta.';
+      const send = deps?.sendText ?? (await import('@/lib/wa/manager')).sendText;
+      const sent = await send(orgId, { phone: msg.phone, waLid: msg.waLid }, safeReply);
+      if (!sent.ok) return { handled: false, reason: 'esign-send-failed' };
+      await saveBotMessage(msg.conversationId, safeReply, {
+        sentVia: 'whatsapp',
+        aiBot: true,
+        esignPinGuard: true,
+        model: cfg.model,
+      });
+      return { handled: true, reply: safeReply };
+    }
   }
 
   // 3c. Jawab isi dokumen E-Sign (ringkasan / tanya isi, LLM dengan

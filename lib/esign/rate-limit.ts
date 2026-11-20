@@ -58,6 +58,14 @@ export function peekRateLimit(
   return { locked: false, resetAt: b.resetAt };
 }
 
+/** Jumlah hitungan saat ini dalam jendela (0 bila tidak ada/kedaluwarsa). */
+export function peekCount(key: string): number {
+  const now = Date.now();
+  const b = buckets.get(key);
+  if (!b || b.resetAt <= now) return 0;
+  return b.count;
+}
+
 /** Reset bucket (mis. setelah verifikasi berhasil — kegagalan lama dimaafkan). */
 export function resetRateLimit(key: string): void {
   buckets.delete(key);

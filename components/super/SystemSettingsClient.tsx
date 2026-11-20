@@ -61,7 +61,7 @@ export function SystemSettingsClient() {
   }
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-[900px] mx-auto space-y-6">
+    <div className="max-w-[900px] mx-auto space-y-6">
       <div>
         <h1 className="text-[22px] font-bold text-ink flex items-center gap-2">
           <ShieldCheck className="h-6 w-6 text-brand" /> Pengaturan Sistem

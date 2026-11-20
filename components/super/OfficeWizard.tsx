@@ -122,7 +122,7 @@ export function OfficeWizard() {
 
   if (done) {
     return (
-      <div className="p-4 sm:p-6 lg:p-8 max-w-[640px] mx-auto space-y-5">
+      <div className="max-w-[640px] mx-auto space-y-5">
         <Card className="!p-6 text-center space-y-4">
           <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
             <Check className="h-6 w-6" />
@@ -153,7 +153,7 @@ export function OfficeWizard() {
   }
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-[720px] mx-auto space-y-5">
+    <div className="max-w-[720px] mx-auto space-y-5">
       <div>
         <Link href="/admin/offices" className="inline-flex items-center gap-1.5 text-[13.5px] font-medium text-muted hover:text-brand mb-3">
           <ArrowLeft className="h-4 w-4" /> Kembali ke Daftar Kantor

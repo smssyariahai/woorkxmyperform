@@ -174,6 +174,7 @@ function buildMessage(
         `Pengirim: ${doc.createdBy.name}\n\n` +
         `Silakan periksa dokumen melalui tautan akses pribadi berikut:\n${link ?? '-'}\n\n` +
         `Mohon periksa isi dokumen sebelum melakukan tanda tangan.\n\n` +
+        `Anda juga bisa menandatangani langsung lewat chat ini: ketik "oke ttd" atau "saya ttd", lalu kirim PIN tanda tangan Anda.\n\n` +
         `Terima kasih.`
       );
     case 'reminder':

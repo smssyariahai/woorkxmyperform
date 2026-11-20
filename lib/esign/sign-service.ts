@@ -7,6 +7,7 @@ import { finalizeDocument } from '@/lib/esign/pdf';
 import { publishEsignEvent } from '@/lib/esign/realtime';
 import { notifyEsignEvent } from '@/lib/esign/notify';
 import { checkRateLimit } from '@/lib/esign/rate-limit';
+import { ESIGN_APP_URL } from '@/lib/esign/links';
 import { writeFile, mkdir, readFile, unlink } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
@@ -38,6 +39,16 @@ export class SignError extends Error {
 
 const MAX_BYTES = 1 * 1024 * 1024; // 1 MB
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+/**
+ * Path absolut file tanda tangan tersimpan dari nilai signaturePath di DB.
+ * Dipakai juga oleh gate WhatsApp (wa-sign.ts) supaya file yang tercatat
+ * di DB tapi sudah tidak ada di disk terdeteksi SEBELUM user diminta PIN.
+ */
+export function savedSignaturePath(signaturePath: string): string {
+  const safe = signaturePath.split('/').pop()!.split('\\').pop()!;
+  return join(process.cwd(), 'uploads', 'esign', 'signatures', safe);
+}
 
 function isPng(buf: Buffer): boolean {
   return buf.length >= 8 && buf.subarray(0, 8).equals(PNG_MAGIC);
@@ -155,9 +166,12 @@ export async function executeSign(input: ExecuteSignInput): Promise<ExecuteSignR
           422
         );
       }
-      const safe = profile.signaturePath.split('/').pop()!.split('\\').pop()!;
-      const full = join(process.cwd(), 'uploads', 'esign', 'signatures', safe);
-      if (!existsSync(full)) throw new SignError('File tanda tangan tersimpan tidak ditemukan.', 404);
+      const full = savedSignaturePath(profile.signaturePath);
+      if (!existsSync(full))
+        throw new SignError(
+          `File tanda tangan Anda yang tersimpan tidak ditemukan di server. Silakan simpan ulang tanda tangan Anda di Pengaturan E-Sign (${ESIGN_APP_URL}/esign/settings).`,
+          404
+        );
       buf = await readFile(full);
       method = 'UPLOADED';
     }

@@ -5,9 +5,17 @@ export const AVAILABLE_MODULES = [
   { key: 'hr', label: 'HR & Rekrutmen' },
   { key: 'broadcast', label: 'Broadcast' },
   { key: 'bot', label: 'Bot' },
-  { key: 'kantor', label: 'Kantor Virtual' },
   { key: 'channels', label: 'Saluran' },
   { key: 'esign', label: 'E-Sign' },
+  { key: 'islami', label: 'Islami' },
+  { key: 'emas', label: 'Emas' },
+  { key: 'pengumuman', label: 'Pengumuman' },
+  { key: 'tal', label: 'TAL' },
+  { key: 'koperasi', label: 'Koperasi' },
+  { key: 'tiket', label: 'Tiket' },
+  { key: 'kantor', label: 'Kantor Virtual' },
+  { key: 'earsip', label: 'E-Arsip' },
+  { key: 'meet', label: 'WOORK MEET' },
 ] as const;
 
 export type ModuleKey = (typeof AVAILABLE_MODULES)[number]['key'];
@@ -23,6 +31,9 @@ export const MODULE_BY_CATALOG_MODULE: Record<string, ModuleKey> = {
   'Broadcast': 'broadcast',
   'Bot': 'bot',
   'E-Sign': 'esign',
+  'Tiket': 'tiket',
+  'E-Arsip': 'earsip',
+  'Meet': 'meet',
 };
 
 /** Parse Organization.modules (JSON string) secara aman; rusak/kosong = [] (semua aktif). */

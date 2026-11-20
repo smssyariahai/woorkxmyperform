@@ -69,9 +69,10 @@ export async function extractPdfText(buffer: Buffer): Promise<string> {
  * Ekstrak teks file asli dokumen lalu simpan ke extractedText.
  * Kembalikan null bila dokumen tidak punya file / file tidak ditemukan
  * (extractedText tetap NULL agar bisa dicoba lagi nanti).
- * Bila ekstraksi gagal (file rusak/terenkripsi) → simpan '' (dianggap
- * tidak ada teks yang bisa dibaca) agar pertanyaan berikutnya tidak
- * mengulang ekstraksi yang sama.
+ * Bila ekstraksi GAGAL (file rusak/terenkripsi, proses terpotong) →
+ * extractedText tetap NULL (bukan '') agar percobaan berikutnya — mis.
+ * saat user bertanya isi dokumen — bisa mengulang ekstraksi; '' hanya
+ * untuk PDF yang berhasil diekstrak tapi memang tidak punya lapisan teks.
  */
 export async function extractAndStoreDocumentText(
   documentId: string
@@ -86,14 +87,14 @@ export async function extractAndStoreDocumentText(
     console.error('[esign-extract] file asli tidak ditemukan:', documentId);
     return null;
   }
-  let text = '';
+  let text: string;
   let truncated = false;
   try {
     const buf = await readFile(full);
     text = await extractPdfText(buf);
   } catch (e: any) {
     console.error('[esign-extract] gagal mengekstrak:', documentId, e?.message ?? e);
-    text = '';
+    return null;
   }
   if (text.length > EXTRACTED_TEXT_MAX_CHARS) {
     text = text.slice(0, EXTRACTED_TEXT_MAX_CHARS);

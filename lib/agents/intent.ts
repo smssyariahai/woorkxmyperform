@@ -1,4 +1,5 @@
 import { SENSITIVE_PATTERN } from './registry';
+import { formatBulanTahun, parseMonthFromText } from './month';
 
 /**
  * Intent parser Bahasa Indonesia untuk command bar.
@@ -83,7 +84,7 @@ export function parseCommand(raw: string): ParsedIntent {
     return {
       agentName: named ?? 'Aria', title: 'Tampilkan pekerjaan berlangsung', description: text,
       toolKey: 'daftar_tugas', toolArgs: { status: 'RUNNING' }, priority: 'LOW', requiresApproval: false,
-      reply: 'Berikut pekerjaan yang sedang berlangsung.',
+      reply: `Perintah diterima — ${named ?? 'Aria'} sedang menampilkan pekerjaan yang sedang berlangsung.`,
       kind: 'query',
     };
   }
@@ -108,15 +109,27 @@ export function parseCommand(raw: string): ParsedIntent {
   // --- perintah tugas berdasar kata kunci ---
   // Keuangan dicek DULU karena "rekap keuangan"/"laporan keuangan" mengandung
   // kata "rekap"/"laporan" yang juga cocok dengan pola laporan kinerja.
+  // --- keuangan: rekap NYATA dari Invoice (tagihan langganan modul WOORK) ---
+  // Data keuangan yang ADA di aplikasi HANYA Invoice + InvoiceItem.
+  // TIDAK ADA data kas/pengeluaran/pemasukan operasional — jadi perintah
+  // "pengeluaran operasional"/"kas" pun diarahkan ke Rekap Tagihan WOORK
+  // dengan penjelasan jujur (di deskripsi + balasan), bukan jalan buntu.
+  // Label hasil: "Rekap Tagihan WOORK", bukan "laporan keuangan lengkap".
   if (/\b(kas|keuangan|pengeluaran|anggaran|uang|pembayaran|tagihan)\b/.test(t)) {
     const agent = named ?? 'Dian';
+    const { year, month } = parseMonthFromText(t);
+    const periode = formatBulanTahun(year, month);
+    const mintaKasOperasional = /\b(pengeluaran|kas|operasional)\b/.test(t);
+    const catatanKas = mintaKasOperasional
+      ? ' Catatan jujur: aplikasi ini tidak punya data kas/pengeluaran operasional, jadi yang dibuat adalah Rekap Tagihan WOORK (tagihan langganan modul) — bukan laporan kas.'
+      : '';
     return {
-      agentName: agent, title: `Keuangan: ${text.slice(0, 60)}`,
-      description: `Permintaan: ${text}. CATATAN: data pembukuan/keuangan belum terhubung ke aplikasi ini, jadi rekap kas nyata belum bisa dibuat. Sampaikan ini dengan jujur ke pengguna dan tawarkan alternatif dari data nyata (laporan operasional / rekap kampanye).`,
-      toolKey: null, toolArgs: {},
+      agentName: agent, title: `Rekap Tagihan WOORK: ${periode}`,
+      description: `Permintaan: ${text}. Sumber data nyata: tagihan langganan modul WOORK (Invoice) kantor ini untuk ${periode}.${catatanKas}`,
+      toolKey: 'rekap_keuangan', toolArgs: { year, month },
       priority,
       requiresApproval: true, // Dian: finansial selalu butuh persetujuan
-      reply: `${agent} mencatat permintaan. Catatan: data keuangan belum terhubung, jadi saya belum bisa membuat rekap kas nyata — saya akan jelaskan alternatifnya setelah Anda menyetujui.`,
+      reply: `${agent} mencatat permintaan dan akan menyusun Rekap Tagihan WOORK untuk ${periode} dari data tagihan langganan kantor ini.${catatanKas} Mohon persetujuan Anda dulu.`,
       kind: 'task',
     };
   }

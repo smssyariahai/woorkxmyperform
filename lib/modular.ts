@@ -1,4 +1,4 @@
-// Registry Sistem Modular — WOORK SaaS (6 modul).
+// Registry Sistem Modular — WOORK SaaS (14 modul).
 //
 // Satu sumber kebenaran untuk struktur modul: halaman, permission, harga,
 // dan pemetaan modul lama (AVAILABLE_MODULES) -> modul baru. Dipakai
@@ -10,13 +10,15 @@
 
 import { PERMISSION_CATALOG } from './permissions';
 
-export type ModularKey = 'dashboard' | 'chat' | 'hris' | 'audit' | 'setting' | 'pusat';
+export type ModularKey = 'dashboard' | 'chat' | 'hris' | 'audit' | 'setting' | 'pusat' | 'islami' | 'emas' | 'pengumuman' | 'tal' | 'koperasi' | 'tiket' | 'kantor' | 'esign' | 'earsip' | 'meet';
 
 export type ModuleAccessLevel = 'READ' | 'WRITE' | 'NONE';
 
 export interface ModularPageDef {
   href: string;
   label: string;
+  /** Kelompok tampilan di sidebar (mis. modul 'pusat'). Kosong = tampil flat seperti biasa. */
+  section?: string;
   /** permission tenant yang dibutuhkan (salah satu). Kosong = selalu tampil. */
   perms?: string[];
   /** permission platform yang dibutuhkan (salah satu). Dipakai menu Administrator Pusat. */
@@ -30,6 +32,8 @@ export interface ModularPageDef {
 export interface ModularModuleDef {
   key: ModularKey;
   label: string;
+  /** Kelompok di sidebar: 'utama' (Menu Utama) atau 'sistem' (Sistem). Default 'utama'. */
+  group?: 'utama' | 'sistem';
   /** true = masuk hitungan invoice; false = selalu ikut (Rp0). */
   billable: boolean;
   /** harga default per user per bulan (Rp). Tahunan = 10x bulanan. */
@@ -40,13 +44,157 @@ export interface ModularModuleDef {
 export const MODULAR_MODULES: ModularModuleDef[] = [
   {
     key: 'dashboard',
+    group: 'utama',
     label: 'Dashboard',
     billable: false,
     defaultMonthlyPerUser: 0,
     pages: [{ href: '/dashboard', label: 'Dashboard' }],
   },
   {
+    key: 'tal',
+    group: 'utama',
+    label: 'TAL',
+    billable: false,
+    defaultMonthlyPerUser: 0,
+    // Porting MyPerform Gelombang 4 (fondasi 2026-11-12). Route dinamis
+    // /tal/tal-tim-saya/laporan/[userId] TIDAK didaftar di sini: guard
+    // pageModuleForPath mengenalinya lewat prefix '/tal/tal-tim-saya'
+    // (pola yang sama seperti /pengumuman/[id] lewat '/pengumuman').
+    // Kalender kerja backup punya dua route (/kalender-kerja dan
+    // /tal/kalender-kerja) — di WOORK hanya /tal/kalender-kerja.
+    pages: [
+      { href: '/tal', label: 'TAL' },
+      { href: '/tal/tasks', label: 'Tugas' },
+      { href: '/tal/templates', label: 'Template Rutinitas' },
+      { href: '/tal/rekapitulasi', label: 'Rekapitulasi' },
+      { href: '/tal/rekapitulasi-hr', label: 'Rekap HR' },
+      { href: '/tal/badges', label: 'Lencana & Trofi' },
+      { href: '/tal/preferences', label: 'Preferensi Notifikasi' },
+      { href: '/tal/tal-tim-saya', label: 'Tim Saya' },
+      { href: '/tal/tal-tim-saya/pengaturan', label: 'Pengaturan Tim' },
+      { href: '/tal/kalender-kerja', label: 'Kalender Kerja' },
+    ],
+  },
+  {
+    key: 'koperasi',
+    group: 'utama',
+    label: 'Koperasi',
+    billable: false,
+    defaultMonthlyPerUser: 0,
+    // Porting MyPerform Gelombang 5 (fondasi 2026-11-13). Simpanan &
+    // pembiayaan di backup masih placeholder (KoperasiSoon) — halaman
+    // /koperasi/simpanan-baru & /koperasi/pembiayaan-baru didaftar di sini
+    // agar guard modul mengenalinya; isinya dibuat sub-tahap berikutnya.
+    pages: [
+      { href: '/koperasi', label: 'Koperasi' },
+      { href: '/koperasi/anggota', label: 'Anggota' },
+      { href: '/koperasi/anggota-baru', label: 'Anggota Baru' },
+      { href: '/koperasi/simpanan-baru', label: 'Simpanan Baru' },
+      { href: '/koperasi/pembiayaan-baru', label: 'Pembiayaan Baru' },
+      { href: '/koperasi/pengaturan', label: 'Pengaturan' },
+    ],
+  },
+  {
+    key: 'emas',
+    group: 'utama',
+    label: 'Emas',
+    billable: false,
+    defaultMonthlyPerUser: 0,
+    pages: [
+      { href: '/emas', label: 'Emas' },
+      { href: '/emas/kalkulator-gadai-emas', label: 'Kalkulator Gadai Emas' },
+      { href: '/emas/kalkulator-pelunasan-emas', label: 'Kalkulator Pelunasan Emas' },
+      { href: '/emas/pke', label: 'PKE' },
+      { href: '/emas/simulasi-emas', label: 'Simulasi Emas' },
+      { href: '/emas/simulasi-emas/pengaturan-url', label: 'Pengaturan URL JSON' },
+      { href: '/emas/tabel-harga-emas', label: 'Tabel Harga Emas' },
+      { href: '/emas/calculator', label: 'Gadai Elektronik' },
+    ],
+  },
+  {
+    key: 'islami',
+    group: 'utama',
+    label: 'Islami',
+    billable: false,
+    defaultMonthlyPerUser: 0,
+    pages: [
+      { href: '/islami', label: 'Islami' },
+      { href: '/islami/al-quran', label: 'Al-Qur\u2019an' },
+      { href: '/islami/hadits', label: 'Hadits' },
+      { href: '/islami/jadwal-shalat', label: 'Jadwal Shalat' },
+      { href: '/islami/kompas-kiblat', label: 'Kompas Kiblat' },
+      { href: '/islami/tasbih', label: 'Tasbih' },
+      { href: '/islami/dzikir', label: 'Dzikir' },
+      { href: '/islami/doa-harian', label: 'Doa Harian' },
+      { href: '/islami/asmaul-husna', label: 'Asmaul Husna' },
+      { href: '/islami/kitab-maulid', label: 'Kitab Maulid' },
+      { href: '/islami/panduan-shalat', label: 'Panduan Shalat' },
+      { href: '/islami/panduan-puasa', label: 'Panduan Puasa' },
+      { href: '/islami/thaharah', label: 'Thaharah' },
+      { href: '/islami/kalkulator-zakat', label: 'Kalkulator Zakat' },
+      { href: '/islami/kisah-nabi', label: 'Kisah Nabi' },
+      { href: '/islami/malaikat-kitab', label: 'Malaikat & Kitab' },
+      { href: '/islami/kalender-hijriah', label: 'Kalender Hijriah' },
+      { href: '/islami/adab-islami', label: 'Adab Islami' },
+      { href: '/islami/tempat-bersejarah', label: 'Tempat Bersejarah' },
+    ],
+  },
+  {
+    key: 'pengumuman',
+    group: 'utama',
+    label: 'Pengumuman',
+    billable: false,
+    defaultMonthlyPerUser: 0,
+    // Satu halaman tab (Daftar | Buat Baru | Draft & Terjadwal) + detail
+    // /pengumuman/[id]. Route /pengumuman/baru, /terjadwal, /preferensi
+    // dari draf desain TIDAK dibuat — tab & modal di halaman utama.
+    pages: [{ href: '/pengumuman', label: 'Pengumuman' }],
+  },
+  {
+    key: 'tiket',
+    group: 'utama',
+    label: 'Tiket',
+    billable: false,
+    defaultMonthlyPerUser: 0,
+    pages: [{ href: '/tiket', label: 'Tiket', perms: ['TIKET_VIEW'], legacyKey: 'tiket' }],
+  },
+  {
+    key: 'kantor',
+    group: 'utama',
+    label: 'Kantor Virtual',
+    billable: false,
+    defaultMonthlyPerUser: 0,
+    // Kantor Virtual baru dari Ruang (2026-11-20, Wave 0): read-only di v1
+    // (hanya menampilkan agent/tugas/aktivitas dari DB). Selalu aktif
+    // (non-billable, pola Tiket). Sub-route /kantor/* dikenali guard lewat
+    // prefix '/kantor' (pageModuleForPath).
+    pages: [{ href: '/kantor', label: 'Kantor Virtual', legacyKey: 'kantor' }],
+  },
+  {
+    key: 'earsip',
+    group: 'utama',
+    label: 'E-Arsip',
+    billable: false,
+    defaultMonthlyPerUser: 0,
+    pages: [
+      { href: '/earsip', label: 'E-Arsip', perms: ['EARSIP_VIEW'], legacyKey: 'earsip' },
+      { href: '/earsip/kategori', label: 'Kategori Arsip', perms: ['EARSIP_MANAGE'], legacyKey: 'earsip' },
+    ],
+  },
+  {
+    key: 'meet',
+    group: 'utama',
+    label: 'WOORK MEET',
+    billable: false,
+    defaultMonthlyPerUser: 0,
+    // WOORK MEET (2026-11-20, Fase 2): sub-route /meet/* (/meet/new,
+    // /meet/[id], /meet/room/[id], ...) dikenali guard lewat prefix '/meet'
+    // (pageModuleForPath) — tidak perlu didaftar satu per satu.
+    pages: [{ href: '/meet', label: 'WOORK MEET', perms: ['MEET_VIEW'], legacyKey: 'meet' }],
+  },
+  {
     key: 'chat',
+    group: 'utama',
     label: 'Chat',
     billable: true,
     defaultMonthlyPerUser: 25000,
@@ -59,19 +207,35 @@ export const MODULAR_MODULES: ModularModuleDef[] = [
     ],
   },
   {
+    key: 'esign',
+    group: 'utama',
+    label: 'E-Sign',
+    billable: false,
+    defaultMonthlyPerUser: 0,
+    // Pecahan dari modul 'hris' (2026-11-19, Item 1): E-Sign kini modul
+    // mandiri di Menu Utama, selalu aktif (non-billable, pola Tiket).
+    // Sub-route /esign/* (/esign/[id], /activity, /new, /settings)
+    // dikenali guard lewat prefix '/esign' (pageModuleForPath) — tidak
+    // perlu didaftar satu per satu. Route publik /esign/sign/[token] juga
+    // tercakup prefix ini tapi tetap publik (middleware mengecualikannya)
+    // dan TIDAK dipindah/diubah.
+    pages: [{ href: '/esign', label: 'E-Sign', perms: ['ESIGN_VIEW'], legacyKey: 'esign' }],
+  },
+  {
     key: 'hris',
+    group: 'utama',
     label: 'HRIS',
     billable: true,
     defaultMonthlyPerUser: 30000,
     pages: [
       { href: '/hr', label: 'HR', perms: ['HR_VIEW'], legacyKey: 'hr' },
-      { href: '/kantor', label: 'Kantor Virtual', legacyKey: 'kantor' },
+      { href: '/hr/detail', label: 'HR Detail', perms: ['HR_VIEW'], legacyKey: 'hr' },
       { href: '/admin-kantor/departments', label: 'Divisi', perms: ['DEPARTMENTS_VIEW'] },
-      { href: '/esign', label: 'E-Sign', perms: ['ESIGN_VIEW'], legacyKey: 'esign' },
     ],
   },
   {
     key: 'audit',
+    group: 'sistem',
     label: 'Audit Trail Log',
     billable: true,
     defaultMonthlyPerUser: 10000,
@@ -79,6 +243,7 @@ export const MODULAR_MODULES: ModularModuleDef[] = [
   },
   {
     key: 'setting',
+    group: 'sistem',
     label: 'Setting',
     billable: false,
     defaultMonthlyPerUser: 0,
@@ -96,18 +261,30 @@ export const MODULAR_MODULES: ModularModuleDef[] = [
   },
   {
     key: 'pusat',
+    group: 'sistem',
     label: 'Administrator Pusat',
     billable: false,
     defaultMonthlyPerUser: 0,
+    // Halaman 'pusat' dikelompokkan per `section` di Sidebar (Bagian 1
+    // tiket /admin terstruktur). Urutan di sini = urutan tampil.
     pages: [
-      { href: '/admin/dashboard', label: 'Dashboard Pusat', platformPerms: ['PLATFORM_TENANTS_VIEW', 'PLATFORM_MASTER_VIEW', 'PLATFORM_AUDIT_VIEW'] },
-      { href: '/admin/offices', label: 'Kantor', platformPerms: ['PLATFORM_TENANTS_VIEW', 'PLATFORM_TENANTS_MANAGE'] },
-      { href: '/admin/invoices', label: 'Invoice', platformPerms: ['PLATFORM_TENANTS_VIEW', 'PLATFORM_TENANTS_MANAGE'] },
-      { href: '/admin/modul', label: 'Harga Modul', platformPerms: ['PLATFORM_PACKAGES_MANAGE'] },
-      { href: '/admin/saldo-master', label: 'Saldo Master', platformPerms: ['PLATFORM_MASTER_VIEW', 'PLATFORM_MASTER_MANAGE'] },
-      { href: '/admin/audit', label: 'Audit Global', platformPerms: ['PLATFORM_AUDIT_VIEW'] },
-      { href: '/admin/platform-admins', label: 'Admin WOORK', superOnly: true },
-      { href: '/admin/pengaturan', label: 'Pengaturan Sistem', superOnly: true },
+      // Manajemen Kantor
+      { href: '/admin/dashboard', label: 'Dashboard Pusat', section: 'Manajemen Kantor', platformPerms: ['PLATFORM_TENANTS_VIEW', 'PLATFORM_MASTER_VIEW', 'PLATFORM_AUDIT_VIEW'] },
+      { href: '/admin/offices', label: 'Kantor', section: 'Manajemen Kantor', platformPerms: ['PLATFORM_TENANTS_VIEW', 'PLATFORM_TENANTS_MANAGE'] },
+      { href: '/admin/offices/new', label: 'Tambah Kantor', section: 'Manajemen Kantor', platformPerms: ['PLATFORM_TENANTS_MANAGE'] },
+      { href: '/admin/pengumuman', label: 'Pengumuman Platform', section: 'Manajemen Kantor', platformPerms: ['PLATFORM_TENANTS_MANAGE'] },
+      { href: '/admin/tiket', label: 'Tiket', section: 'Manajemen Kantor', superOnly: true },
+      // Manajemen Pengguna
+      { href: '/admin/pengguna', label: 'Pengguna', section: 'Manajemen Pengguna', superOnly: true },
+      { href: '/admin/platform-admins', label: 'Admin WOORK', section: 'Manajemen Pengguna', superOnly: true },
+      { href: '/admin/peran-platform', label: 'Peran Platform', section: 'Manajemen Pengguna', superOnly: true },
+      // Keuangan & Paket
+      { href: '/admin/invoices', label: 'Invoice', section: 'Keuangan & Paket', platformPerms: ['PLATFORM_TENANTS_VIEW', 'PLATFORM_TENANTS_MANAGE'] },
+      { href: '/admin/modul', label: 'Harga Modul', section: 'Keuangan & Paket', platformPerms: ['PLATFORM_PACKAGES_MANAGE'] },
+      { href: '/admin/saldo-master', label: 'Saldo Master', section: 'Keuangan & Paket', platformPerms: ['PLATFORM_MASTER_VIEW', 'PLATFORM_MASTER_MANAGE'] },
+      // Sistem & Pengawasan
+      { href: '/admin/audit', label: 'Audit Global', section: 'Sistem & Pengawasan', platformPerms: ['PLATFORM_AUDIT_VIEW'] },
+      { href: '/admin/pengaturan', label: 'Pengaturan Sistem', section: 'Sistem & Pengawasan', superOnly: true },
     ],
   },
 ];
@@ -136,18 +313,36 @@ export const LEGACY_TO_MODULAR: Record<string, ModularKey> = {
   bot: 'chat',
   channels: 'chat',
   hr: 'hris',
-  kantor: 'hris',
-  esign: 'hris',
+  esign: 'esign',
+  islami: 'islami',
+  emas: 'emas',
+  pengumuman: 'pengumuman',
+  tal: 'tal',
+  koperasi: 'koperasi',
+  tiket: 'tiket',
+  kantor: 'kantor',
+  earsip: 'earsip',
+  meet: 'meet',
 };
 
 /** Pemetaan modul baru -> kunci modul lama di dalamnya. */
 export const MODULAR_TO_LEGACY: Record<ModularKey, string[]> = {
   dashboard: [],
   chat: ['inbox', 'crm', 'broadcast', 'bot', 'channels'],
-  hris: ['hr', 'kantor', 'esign'],
+  hris: ['hr'],
   audit: [],
   setting: [],
   pusat: [],
+  islami: ['islami'],
+  emas: ['emas'],
+  pengumuman: ['pengumuman'],
+  tal: ['tal'],
+  koperasi: ['koperasi'],
+  tiket: ['tiket'],
+  kantor: ['kantor'],
+  esign: ['esign'],
+  earsip: ['earsip'],
+  meet: ['meet'],
 };
 
 /** Modul katalog permission (PERMISSION_CATALOG.module) -> modul baru. */
@@ -157,7 +352,7 @@ const CATALOG_MODULE_TO_MODULAR: Record<string, ModularKey> = {
   Broadcast: 'chat',
   Bot: 'chat',
   HR: 'hris',
-  'E-Sign': 'hris',
+  'E-Sign': 'esign',
   Divisi: 'hris',
   Persetujuan: 'hris',
   Audit: 'audit',
@@ -166,6 +361,9 @@ const CATALOG_MODULE_TO_MODULAR: Record<string, ModularKey> = {
   Role: 'setting',
   Kantor: 'pusat',
   Platform: 'pusat',
+  Tiket: 'tiket',
+  'E-Arsip': 'earsip',
+  Meet: 'meet',
 };
 
 /**

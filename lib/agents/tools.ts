@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/db';
+import { formatBulanTahun, monthRange } from './month';
 
 /**
  * Tool Registry — Master Prompt §11.
@@ -68,6 +69,80 @@ export const TOOLS: Record<string, ToolDef> = {
       const summary =
         `Hari ini: ${convs} percakapan, ${msgs} pesan, ${newCustomers} pelanggan baru. ` +
         `Total ${customers} pelanggan. Kampanye aktif: ${campaigns.filter((c) => c.status === 'SENDING' || c.status === 'SCHEDULED').length}.`;
+      return { summary, data };
+    },
+  },
+
+  rekap_keuangan: {
+    key: 'rekap_keuangan',
+    name: 'Rekap Tagihan WOORK',
+    description:
+      'Rekap tagihan langganan modul WOORK (Invoice + InvoiceItem) kantor ini per bulan. ' +
+      'BUKAN laporan keuangan lengkap dan BUKAN rekap kas/pengeluaran operasional — ' +
+      'aplikasi ini tidak punya data kas operasional, jadi jangan pernah menyajikannya sebagai laporan kas.',
+    simulated: false,
+    needsApproval: false, // persetujuan finansial ditangani di level tugas (intent requiresApproval: true)
+    run: async (ctx, args) => {
+      const now = new Date();
+      const year = Number(args.year) || now.getFullYear();
+      let month = Number(args.month) || now.getMonth() + 1;
+      if (month < 1 || month > 12) month = now.getMonth() + 1;
+      const periode = formatBulanTahun(year, month);
+      const { start, end } = monthRange(year, month);
+      // Invoice yang periodenya bersinggungan dengan bulan yang diminta.
+      const invoices = await prisma.invoice.findMany({
+        where: {
+          organizationId: ctx.organizationId,
+          periodStart: { lt: end },
+          periodEnd: { gte: start },
+        },
+        include: { items: true },
+        orderBy: { periodStart: 'asc' },
+      });
+      const aktif = invoices.filter((i) => i.status !== 'CANCELLED');
+      const sum = (rows: { total: number }[]) => rows.reduce((a, r) => a + r.total, 0);
+      const totalTagihan = sum(aktif);
+      const totalLunas = sum(aktif.filter((i) => i.status === 'PAID'));
+      const totalBelumLunas = sum(aktif.filter((i) => i.status === 'PENDING' || i.status === 'OVERDUE'));
+      const perModulMap = new Map<string, { modul: string; jumlah_item: number; total: number }>();
+      for (const inv of aktif) {
+        for (const it of inv.items) {
+          const key = it.moduleKey || it.description || 'Lainnya';
+          const cur = perModulMap.get(key) ?? { modul: key, jumlah_item: 0, total: 0 };
+          cur.jumlah_item += 1;
+          cur.total += it.amount;
+          perModulMap.set(key, cur);
+        }
+      }
+      const data = {
+        label: 'Rekap Tagihan WOORK',
+        periode,
+        year,
+        month,
+        total_tagihan: totalTagihan,
+        total_lunas: totalLunas,
+        total_belum_lunas: totalBelumLunas,
+        jumlah_invoice: invoices.length,
+        kosong: invoices.length === 0,
+        per_modul: [...perModulMap.values()].sort((a, b) => b.total - a.total),
+        invoices: invoices.map((i) => ({
+          nomor: i.number,
+          periode: `${i.periodStart.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })} – ${i.periodEnd.toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}`,
+          status: i.status,
+          total: i.total,
+          dibayar_pada: i.paidAt ? i.paidAt.toISOString() : null,
+        })),
+      };
+      if (invoices.length === 0) {
+        return {
+          summary: `Tidak ada tagihan tercatat untuk ${periode}.`,
+          data,
+        };
+      }
+      const summary =
+        `Rekap Tagihan WOORK ${periode}: ${invoices.length} invoice, total tagihan Rp ${totalTagihan.toLocaleString('id-ID')} ` +
+        `(lunas Rp ${totalLunas.toLocaleString('id-ID')}, belum lunas Rp ${totalBelumLunas.toLocaleString('id-ID')}). ` +
+        `Sumber: tagihan langganan modul WOORK kantor ini — bukan laporan kas operasional.`;
       return { summary, data };
     },
   },

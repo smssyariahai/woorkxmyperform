@@ -68,9 +68,9 @@ export function isSubscriptionActive(sub: SubscriptionInfo | null): boolean {
   return effectiveSubscriptionStatus(sub) === 'ACTIVE';
 }
 
-/** Modul non-billable (Dashboard, Setting, Administrator Pusat) selalu aktif. */
+/** Modul non-billable (Dashboard, Setting, Administrator Pusat, Islami, Emas, Pengumuman, TAL, Koperasi, Tiket, Kantor Virtual, E-Sign, E-Arsip, WOORK MEET) selalu aktif. */
 export function isModuleSubscribed(sub: SubscriptionInfo | null, moduleKey: ModularKey): boolean {
-  if (moduleKey === 'dashboard' || moduleKey === 'setting' || moduleKey === 'pusat') return true;
+  if (moduleKey === 'dashboard' || moduleKey === 'setting' || moduleKey === 'pusat' || moduleKey === 'islami' || moduleKey === 'emas' || moduleKey === 'pengumuman' || moduleKey === 'tal' || moduleKey === 'koperasi' || moduleKey === 'tiket' || moduleKey === 'kantor' || moduleKey === 'esign' || moduleKey === 'earsip' || moduleKey === 'meet') return true;
   if (!sub) return true; // grandfathering
   if (sub.modules.length === 0) return true; // belum ada pilihan modul = semua aktif
   return sub.modules.some((m) => m.moduleKey === moduleKey && m.status === 'ACTIVE');
@@ -78,7 +78,7 @@ export function isModuleSubscribed(sub: SubscriptionInfo | null, moduleKey: Modu
 
 /** Daftar modul yang aktif untuk kantor (dipakai Sidebar + form). */
 export function activeModulesOf(sub: SubscriptionInfo | null): ModularKey[] {
-  const all: ModularKey[] = ['dashboard', 'chat', 'hris', 'audit', 'setting', 'pusat'];
+  const all: ModularKey[] = ['dashboard', 'tal', 'koperasi', 'emas', 'islami', 'pengumuman', 'tiket', 'kantor', 'chat', 'hris', 'esign', 'earsip', 'meet', 'audit', 'setting', 'pusat'];
   return all.filter((k) => isModuleSubscribed(sub, k));
 }
 

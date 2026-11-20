@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/db';
-import { checkRateLimit, peekRateLimit, resetRateLimit } from './rate-limit';
+import { checkRateLimit, peekCount, peekRateLimit, resetRateLimit } from './rate-limit';
 
 /**
  * PIN tanda tangan E-Sign.
@@ -25,6 +25,11 @@ export function isPinLocked(userId: string): { locked: boolean; retryAfterSec?: 
   if (!p.locked) return { locked: false };
   const retryAfterSec = p.resetAt ? Math.max(1, Math.ceil((p.resetAt - Date.now()) / 1000)) : undefined;
   return { locked: true, retryAfterSec };
+}
+
+/** Sisa percobaan PIN sebelum terkunci (tanpa menambah hitungan). */
+export function pinAttemptsLeft(userId: string): number {
+  return Math.max(0, PIN_MAX_FAILURES - peekCount(failKey(userId)));
 }
 
 /**

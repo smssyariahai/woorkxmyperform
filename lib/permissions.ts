@@ -46,6 +46,18 @@ export const PERMISSIONS = {
   ESIGN_MANAGE: 'ESIGN_MANAGE',
   ESIGN_SIGN: 'ESIGN_SIGN',
   ESIGN_APPROVE: 'ESIGN_APPROVE',
+  // --- Tiket ---
+  TIKET_VIEW: 'TIKET_VIEW',
+  TIKET_CREATE: 'TIKET_CREATE',
+  TIKET_MANAGE: 'TIKET_MANAGE',
+  // --- E-Arsip ---
+  EARSIP_VIEW: 'EARSIP_VIEW',
+  EARSIP_CREATE: 'EARSIP_CREATE',
+  EARSIP_MANAGE: 'EARSIP_MANAGE',
+  // --- WOORK MEET ---
+  MEET_VIEW: 'MEET_VIEW',
+  MEET_CREATE: 'MEET_CREATE',
+  MEET_MANAGE: 'MEET_MANAGE',
   // --- platform (Admin WOORK, Fase 1 RBAC) ---
   // Hanya dipakai lewat requirePlatformPermission; TIDAK masuk ROLE_PERMISSIONS
   // agar tidak pernah tersinkron ke role tenant oleh sync-rbac.
@@ -102,6 +114,18 @@ export const PERMISSION_CATALOG: PermissionDef[] = [
   { key: 'ESIGN_MANAGE', module: 'E-Sign', description: 'Mengirim, membatalkan & mengelola template E-Sign' },
   { key: 'ESIGN_SIGN', module: 'E-Sign', description: 'Menandatangani dokumen yang ditunjuk ke dirinya' },
   { key: 'ESIGN_APPROVE', module: 'E-Sign', description: 'Menyetujui dokumen sebelum ditandatangani' },
+  // --- Tiket ---
+  { key: 'TIKET_VIEW', module: 'Tiket', description: 'Melihat tiket kantor' },
+  { key: 'TIKET_CREATE', module: 'Tiket', description: 'Membuat tiket baru' },
+  { key: 'TIKET_MANAGE', module: 'Tiket', description: 'Menangani tiket: membalas, mengubah status, prioritas & penugasan' },
+  // --- E-Arsip ---
+  { key: 'EARSIP_VIEW', module: 'E-Arsip', description: 'Melihat dokumen arsip kantor' },
+  { key: 'EARSIP_CREATE', module: 'E-Arsip', description: 'Mengunggah dokumen arsip baru' },
+  { key: 'EARSIP_MANAGE', module: 'E-Arsip', description: 'Mengelola arsip: edit, arsipkan, hapus dokumen & kategori' },
+  // --- WOORK MEET ---
+  { key: 'MEET_VIEW', module: 'Meet', description: 'Melihat dashboard WOORK MEET & gabung meeting yang diundang' },
+  { key: 'MEET_CREATE', module: 'Meet', description: 'Membuat & menjadwalkan meeting' },
+  { key: 'MEET_MANAGE', module: 'Meet', description: 'Mengelola semua meeting kantor, pengaturan & hapus rekaman' },
   // --- platform (Admin WOORK) ---
   { key: 'PLATFORM_TENANTS_VIEW', module: 'Platform', description: 'Melihat daftar & statistik tenant' },
   { key: 'PLATFORM_TENANTS_MANAGE', module: 'Platform', description: 'Membuat / mengedit / menonaktifkan tenant' },
@@ -118,6 +142,9 @@ export const ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     'BROADCAST_CREATE', 'BOT_MANAGE', 'TEAM_MANAGE', 'AUDIT_VIEW', 'SETTINGS_MANAGE',
     'HR_VIEW', 'HR_MANAGE', 'HR_EXPORT', 'APPROVALS_REVIEW',
     'ESIGN_VIEW', 'ESIGN_CREATE', 'ESIGN_MANAGE', 'ESIGN_SIGN', 'ESIGN_APPROVE',
+    'TIKET_VIEW', 'TIKET_CREATE', 'TIKET_MANAGE',
+    'EARSIP_VIEW', 'EARSIP_CREATE', 'EARSIP_MANAGE',
+    'MEET_VIEW', 'MEET_CREATE', 'MEET_MANAGE',
     'USERS_VIEW', 'USERS_CREATE', 'USERS_UPDATE', 'USERS_DEACTIVATE', 'USERS_ASSIGN_ROLE', 'USERS_DELETE',
     'ROLES_VIEW', 'ROLES_CREATE', 'ROLES_UPDATE', 'ROLES_DELETE', 'PERMISSIONS_MANAGE',
     'DEPARTMENTS_VIEW', 'DEPARTMENTS_MANAGE',
@@ -127,6 +154,9 @@ export const ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     'BROADCAST_CREATE', 'BOT_MANAGE', 'TEAM_MANAGE', 'AUDIT_VIEW', 'SETTINGS_MANAGE',
     'HR_VIEW', 'HR_MANAGE', 'HR_EXPORT', 'APPROVALS_REVIEW',
     'ESIGN_VIEW', 'ESIGN_CREATE', 'ESIGN_MANAGE', 'ESIGN_SIGN', 'ESIGN_APPROVE',
+    'TIKET_VIEW', 'TIKET_CREATE', 'TIKET_MANAGE',
+    'EARSIP_VIEW', 'EARSIP_CREATE', 'EARSIP_MANAGE',
+    'MEET_VIEW', 'MEET_CREATE', 'MEET_MANAGE',
     'USERS_VIEW', 'USERS_CREATE', 'USERS_UPDATE', 'USERS_DEACTIVATE', 'USERS_ASSIGN_ROLE', 'USERS_DELETE',
     'ROLES_VIEW', 'ROLES_CREATE', 'ROLES_UPDATE', 'ROLES_DELETE', 'PERMISSIONS_MANAGE',
     'DEPARTMENTS_VIEW', 'DEPARTMENTS_MANAGE',
@@ -135,10 +165,13 @@ export const ROLE_PERMISSIONS: Record<string, PermissionKey[]> = {
     'INBOX_VIEW', 'INBOX_REPLY', 'CRM_VIEW', 'CRM_EDIT',
     'BROADCAST_CREATE', 'AUDIT_VIEW', 'HR_VIEW', 'APPROVALS_REVIEW',
     'ESIGN_VIEW', 'ESIGN_SIGN', 'ESIGN_APPROVE',
+    'TIKET_VIEW', 'TIKET_CREATE',
+    'EARSIP_VIEW', 'EARSIP_CREATE',
+    'MEET_VIEW', 'MEET_CREATE',
     'USERS_VIEW', 'DEPARTMENTS_VIEW',
   ],
-  AGENT: ['INBOX_VIEW', 'INBOX_REPLY', 'CRM_VIEW', 'CRM_EDIT', 'APPROVALS_REVIEW', 'ESIGN_VIEW', 'ESIGN_SIGN'],
-  VIEWER: ['INBOX_VIEW', 'CRM_VIEW', 'AUDIT_VIEW'],
+  AGENT: ['INBOX_VIEW', 'INBOX_REPLY', 'CRM_VIEW', 'CRM_EDIT', 'APPROVALS_REVIEW', 'ESIGN_VIEW', 'ESIGN_SIGN', 'TIKET_VIEW', 'TIKET_CREATE', 'EARSIP_VIEW', 'EARSIP_CREATE', 'MEET_VIEW', 'MEET_CREATE'],
+  VIEWER: ['INBOX_VIEW', 'CRM_VIEW', 'AUDIT_VIEW', 'MEET_VIEW'],
 };
 
 /**
@@ -173,12 +206,13 @@ export const ROLE_TEMPLATES: Array<{
       'BROADCAST_CREATE', 'AUDIT_VIEW', 'HR_VIEW',
       'USERS_VIEW', 'DEPARTMENTS_VIEW',
       'ESIGN_VIEW', 'ESIGN_APPROVE', 'ESIGN_SIGN',
+      'MEET_VIEW', 'MEET_CREATE', 'MEET_MANAGE',
     ],
   },
   {
     name: 'Karyawan',
     description: 'Karyawan — akses dasar operasional',
-    permissions: ['INBOX_VIEW', 'CRM_VIEW', 'ESIGN_VIEW', 'ESIGN_SIGN'],
+    permissions: ['INBOX_VIEW', 'CRM_VIEW', 'ESIGN_VIEW', 'ESIGN_SIGN', 'TIKET_VIEW', 'TIKET_CREATE', 'EARSIP_VIEW', 'EARSIP_CREATE', 'MEET_VIEW', 'MEET_CREATE'],
   },
 ];
 

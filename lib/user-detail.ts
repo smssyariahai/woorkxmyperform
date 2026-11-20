@@ -6,7 +6,7 @@ import { prisma } from '@/lib/db';
 import { apiErr } from '@/lib/utils';
 import { parseOrgModules } from '@/lib/modules';
 import { LEGACY_TO_MODULAR, MODULAR_MODULES, type ModularKey, type ModuleAccessLevel } from '@/lib/modular';
-import { getSubscription, moduleLevelFromLegacy, subscribedBillableModules } from '@/lib/subscription';
+import { activeModulesOf, getSubscription, moduleLevelFromLegacy } from '@/lib/subscription';
 import {
   BLOOD_TYPES,
   FORMAL_DEGREES,
@@ -462,9 +462,13 @@ export async function getUserFormRefs(organizationId: string, excludeUserId?: st
     getSubscription(organizationId),
   ]);
   const orgModules = parseOrgModules(org?.modules); // [] = semua aktif (jalur lama)
-  // Modul yang bisa diatur per pengguna: modul berbayar yang dilanggan +
-  // Dashboard & Setting (selalu ikut). Tanpa langganan = semua aktif.
-  const subscribedModules: string[] = ['dashboard', 'setting', ...subscribedBillableModules(sub)];
+  // Modul yang bisa diatur per pengguna: semua modul aktif kantor — modul
+  // non-billable (Dashboard, Setting, Islami, Emas, Pengumuman, TAL) selalu
+  // aktif, modul berbayar mengikuti langganan (tanpa langganan = semua aktif).
+  // JANGAN pakai subscribedBillableModules di sini: daftar itu hanya berisi
+  // modul berbayar + Dashboard & Setting, sehingga modul non-billable
+  // terkunci di form ("tidak dilanggan kantor ini").
+  const subscribedModules: string[] = activeModulesOf(sub);
   return {
     roles,
     departments,
