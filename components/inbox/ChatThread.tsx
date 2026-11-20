@@ -250,7 +250,19 @@ export function ChatThread({
           <ArrowLeft className="h-5 w-5" />
         </button>
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-[15px] font-bold text-ink">{detail.customer.name}</h2>
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="min-w-0 truncate text-[15px] font-bold text-ink">{detail.customer.name}</h2>
+            {isWoo && (
+              <span
+                className="shrink-0"
+                title="Woo AI-Agent adalah asisten AI WOORK yang ditugaskan menangani percakapan ini."
+              >
+                <Badge tone="green" className="shrink-0 whitespace-nowrap">
+                  Woo AI-Agent
+                </Badge>
+              </span>
+            )}
+          </div>
           <p className="text-[12px] text-muted">
             {meta.label}, tahap {detail.customer.stage}
             {detail.assignee ? ` · ditangani ${detail.assignee.name}` : ''}
@@ -333,7 +345,7 @@ export function ChatThread({
                   <p className="text-[13.5px] text-ink whitespace-pre-wrap break-words">{m.body}</p>
                 ) : null}
                 <p className="mt-1 text-[10.5px] text-muted text-right">
-                  {mine ? ((m.senderType === 'WOO' ? 'Ai-Agent Woork' : m.sender?.name) ?? 'Tim') + ', ' : ''}
+                  {mine ? ((m.senderType === 'WOO' ? 'Woo AI-Agent' : m.sender?.name) ?? 'Tim') + ', ' : ''}
                   {new Date(m.createdAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }).replace(':', '.')}
                 </p>
                 {mine && waFailed(m) && (

@@ -182,7 +182,7 @@ export function UserForm({
   const title = mode === 'create' ? 'Tambah Pengguna' : `Edit Pengguna — ${state.name || ''}`;
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-[1400px] mx-auto space-y-5">
+    <div className="max-w-[1400px] mx-auto space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <button onClick={() => router.push('/admin-kantor/users')} className="inline-flex items-center gap-1 text-[13px] text-muted hover:text-ink mb-1">

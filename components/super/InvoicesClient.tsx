@@ -43,7 +43,7 @@ export function InvoicesClient() {
   }, [load]);
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-[1100px] mx-auto space-y-5">
+    <div className="max-w-[1100px] mx-auto space-y-5">
       <div>
         <h1 className="text-[22px] font-bold text-ink">Invoice</h1>
         <p className="text-sm text-muted">Seluruh tagihan langganan kantor. Tandai lunas setelah pembayaran diterima.</p>

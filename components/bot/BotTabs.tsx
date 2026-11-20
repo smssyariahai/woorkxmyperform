@@ -14,7 +14,7 @@ export function BotTabs({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   return (
     <div>
       <div className="sticky top-0 z-10 bg-canvas/95 backdrop-blur border-b border-line">
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 flex gap-1">
+        <div className="flex gap-1">
           <button
             onClick={() => setTab('flow')}
             className={cn(

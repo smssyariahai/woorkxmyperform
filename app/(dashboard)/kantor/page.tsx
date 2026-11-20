@@ -1,11 +1,17 @@
+// Halaman Kantor Virtual — server component: guard auth + modul,
+// render pembungkus klien (toggle 3D/2D).
+// Scene 3D diadaptasi dari Ruang (yugienugraha/ruang v0.2.0, MIT).
+import { redirect } from 'next/navigation';
 import { getAuthContext } from '@/lib/auth-helpers';
-import { KantorClient } from '@/components/kantor/KantorClient';
-
-export const dynamic = 'force-dynamic';
-export const metadata = { title: 'Kantor Virtual — WOORK' };
+import { getSubscription, isModuleSubscribed } from '@/lib/subscription';
+import { KantorPageClient } from '@/components/kantor/KantorPageClient';
 
 export default async function KantorPage() {
   const ctx = await getAuthContext();
-  const isAdmin = ctx?.role === 'OWNER' || ctx?.role === 'ADMIN';
-  return <KantorClient isAdmin={!!isAdmin} />;
+  if (!ctx) redirect('/login');
+  if (!ctx.isSuperAdmin) {
+    const sub = await getSubscription(ctx.organizationId);
+    if (!isModuleSubscribed(sub, 'kantor')) redirect('/dashboard');
+  }
+  return <KantorPageClient />;
 }

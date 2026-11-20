@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { Sidebar } from '@/components/layout/Sidebar';
@@ -61,20 +61,48 @@ export function AppShell({
   const { data: session } = useSession();
   const myUserId = (session?.user as any)?.id as string | undefined;
 
+  /** Hak akses modul "live": diawali dari props layout (server), lalu
+   *  diperbarui berkala dari /api/me/modules supaya perubahan oleh admin
+   *  (modul dibuat "Tidak ada") langsung tercermin tanpa refresh browser.
+   *  SSE /api/realtime tetap jadi jalur cepat; polling ini penjaminnya. */
+  const [liveModuleLevels, setLiveModuleLevels] = useState(moduleLevels);
+  const [liveActiveModules, setLiveActiveModules] = useState(activeModules);
+
+  /** Ambil hak akses modul terbaru dari server lalu samakan state live.
+   *  Dipakai SSE (jalur cepat) dan polling (penjamin) — satu-satunya tempat
+   *  state live diubah dari hasil fetch, supaya tidak ada dua logika. */
+  const refreshModuleAccess = useCallback(async () => {
+    try {
+      const r = await fetch('/api/me/modules', { cache: 'no-store' });
+      if (!r.ok) return;
+      const j = await r.json().catch(() => null);
+      const d = j?.data ?? j;
+      if (!d || !d.moduleLevels || !d.activeModules) return;
+      const levelsKey = JSON.stringify(d.moduleLevels);
+      const modsKey = JSON.stringify(d.activeModules);
+      setLiveModuleLevels((prev) => (JSON.stringify(prev) === levelsKey ? prev : d.moduleLevels));
+      setLiveActiveModules((prev) => (JSON.stringify(prev) === modsKey ? prev : d.activeModules));
+    } catch {
+      /* jaringan gagal — percobaan berikut yang mengambil alih */
+    }
+  }, []);
+
   useEffect(() => {
     const v = localStorage.getItem('woork-sidebar');
     if (v === 'collapsed') setCollapsed(true);
   }, []);
 
   // Hak akses modul berubah (diubah admin dari halaman Manajemen Pengguna /
-  // Pengaturan Kantor / Role): refresh layout otomatis — menu yang dimatikan
-  // langsung hilang tanpa reload manual. EventSource reconnect otomatis.
+  // Pengaturan Kantor / Role): tarik data terbaru LANGSUNG ke state live
+  // (modul hilang sekejap, tanpa menunggu router.refresh) + refresh layout.
+  // EventSource reconnect otomatis bila koneksi putus.
   useEffect(() => {
     const es = new EventSource('/api/realtime');
     const onModuleAccess = (e: MessageEvent) => {
       try {
         const d = JSON.parse(e.data) as { userId?: string | null };
         if (d.userId && d.userId !== myUserId) return;
+        void refreshModuleAccess();
         router.refresh();
       } catch {
         /* abaikan payload rusak */
@@ -82,7 +110,38 @@ export function AppShell({
     };
     es.addEventListener('module:access', onModuleAccess);
     return () => es.close();
-  }, [myUserId, router]);
+  }, [myUserId, router, refreshModuleAccess]);
+
+  // Bila layout server mengirim props baru (mis. sesudah router.refresh()
+  // dari event SSE), samakan state live.
+  useEffect(() => {
+    setLiveModuleLevels(moduleLevels);
+    setLiveActiveModules(activeModules);
+  }, [moduleLevels, activeModules]);
+
+  // Cek berkala TIAP 1 DETIK (+ saat tab kembali aktif): bila hak akses modul
+  // berubah, update state live — Sidebar langsung menyembunyikan modul yang
+  // dimatikan, tanpa refresh browser. Dilewati saat tab tersembunyi, supaya
+  // tab yang tidak dipakai tidak membebani server.
+  useEffect(() => {
+    let stopped = false;
+    const check = async () => {
+      if (stopped || document.visibilityState === 'hidden') return;
+      await refreshModuleAccess();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void check();
+    };
+    const t = setInterval(() => void check(), 1000);
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      stopped = true;
+      clearInterval(t);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, [refreshModuleAccess]);
 
   // Bila user sedang membuka halaman modul yang baru saja dimatikan
   // (per pengguna / tingkat langganan), pindahkan ke Dashboard.
@@ -91,11 +150,11 @@ export function AppShell({
     const hit = pageModuleForPath(pathname);
     if (!hit) return;
     const { module, page } = hit;
-    const orgOff = !activeModules.includes(module);
+    const orgOff = !liveActiveModules.includes(module);
     const level =
-      moduleLevels[module] ?? (page.legacyKey ? moduleLevels[page.legacyKey] : undefined) ?? 'WRITE';
+      liveModuleLevels[module] ?? (page.legacyKey ? liveModuleLevels[page.legacyKey] : undefined) ?? 'WRITE';
     if (orgOff || level === 'NONE') router.replace('/dashboard');
-  }, [moduleLevels, activeModules, pathname, isSuperAdmin, router]);
+  }, [liveModuleLevels, liveActiveModules, pathname, isSuperAdmin, router]);
 
   function toggleCollapse() {
     setCollapsed((c) => {
@@ -118,8 +177,8 @@ export function AppShell({
           isSuperAdmin={isSuperAdmin}
           permissions={filterTrialMenus(permissions, trial)}
           platformPermissions={platformPermissions}
-          activeModules={activeModules}
-          moduleLevels={moduleLevels}
+          activeModules={liveActiveModules}
+          moduleLevels={liveModuleLevels}
           memberships={memberships}
           unread={unread}
           collapsed={collapsed}
@@ -141,8 +200,8 @@ export function AppShell({
               isSuperAdmin={isSuperAdmin}
               permissions={filterTrialMenus(permissions, trial)}
               platformPermissions={platformPermissions}
-              activeModules={activeModules}
-              moduleLevels={moduleLevels}
+              activeModules={liveActiveModules}
+              moduleLevels={liveModuleLevels}
               memberships={memberships}
               unread={unread}
               collapsed={false}
@@ -161,7 +220,7 @@ export function AppShell({
           onToggleCollapse={toggleCollapse}
           userName={userName}
         />
-        <main className="flex-1 overflow-auto">{children}</main>
+        <main className="flex-1 overflow-auto"><div className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 lg:px-8">{children}</div></main>
       </div>
     </div>
   );

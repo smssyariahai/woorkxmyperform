@@ -254,7 +254,7 @@ export function DocumentDetail({ id }: { id: string }) {
   const signedCount = (item.signers ?? []).filter((s: any) => s.signingStatus === 'SIGNED').length;
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4 p-4 sm:p-6 lg:p-8">
+    <div className="mx-auto w-full max-w-4xl space-y-4">
       <EsignClient onEvent={() => load(true)} />
       <Link href="/esign" className="inline-flex items-center gap-1 text-[13px] font-medium text-muted transition-colors hover:text-ink">
         <ChevronLeft className="h-4 w-4" /> Kembali ke daftar

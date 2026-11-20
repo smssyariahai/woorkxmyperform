@@ -240,7 +240,9 @@ export function InboxClient() {
                 <X className="h-4 w-4" /> Batal
               </button>
             )}
-            <Badge tone="green">Woo aktif</Badge>
+            <span title="Woo AI-Agent adalah asisten AI WOORK untuk percakapan pelanggan.">
+              <Badge tone="green">Woo AI-Agent</Badge>
+            </span>
           </span>
         </div>
         {selectMode && (
@@ -365,7 +367,7 @@ export function InboxClient() {
                           {STATUS_BADGE[c.status]?.label ?? c.status}
                         </Badge>
                         <span className="text-[11px] text-muted">
-                          {isWoo ? '· Ai-Agent Woork' : c.assignee ? `· ${c.assignee.name}` : '· Tim'}
+                          {isWoo ? '· Woo AI-Agent' : c.assignee ? `· ${c.assignee.name}` : '· Tim'}
                         </span>
                         {c.customer.unreadCount > 0 && (
                           <span className="badge-red !px-1.5">{c.customer.unreadCount}</span>

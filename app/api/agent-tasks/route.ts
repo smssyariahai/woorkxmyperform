@@ -3,6 +3,8 @@ import { requirePermission, requireModule } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { audit, getClientIp } from '@/lib/audit';
 import { parseCommand } from '@/lib/agents/intent';
+import { parseReportFormat } from '@/lib/agents/format';
+import { getNineRouterConfig } from '@/lib/bot/ninerouter';
 import { ensureAgents, enqueueTask, cancelTask, retryTask } from '@/lib/agents/scheduler';
 import { publishAgentEvent } from '@/lib/agents/events';
 
@@ -97,6 +99,17 @@ export async function POST(req: Request) {
     if (!agent) return apiErr(`Agent ${intent.agentName} tidak ditemukan.`, 404);
     if (!agent.isEnabled) return apiErr(`Agent ${agent.name} sedang nonaktif.`, 422);
 
+    // Wave 4 — tandai tugas untuk AI: scheduler memakai planWithAI +
+    // composeReportWithAI bila gateway 9Router aktif; bila nonaktif (atau
+    // gagal dibaca) tugas berjalan dengan router kata kunci lama.
+    let useAi = false;
+    try {
+      const cfg = await getNineRouterConfig();
+      useAi = cfg.enabled && Boolean(cfg.baseUrl);
+    } catch {
+      useAi = false;
+    }
+
     const task = await prisma.agentTask.create({
       data: {
         organizationId: ctx.organizationId,
@@ -107,7 +120,15 @@ export async function POST(req: Request) {
         priority: intent.priority,
         status: 'QUEUED',
         requiresApproval: intent.requiresApproval,
-        inputPayload: JSON.stringify({ toolKey: intent.toolKey, toolArgs: intent.toolArgs, command }),
+        inputPayload: JSON.stringify({
+          toolKey: intent.toolKey,
+          toolArgs: intent.toolArgs,
+          command,
+          useAi,
+          // Wave 6 — format file laporan yang diminta perintah
+          // (pdf default; xlsx/docx/md hanya bila disebut eksplisit).
+          reportFormat: parseReportFormat(command),
+        }),
       },
       include: { agent: { select: { id: true, name: true, avatarColor: true } } },
     });

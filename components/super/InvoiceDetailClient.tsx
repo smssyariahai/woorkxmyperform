@@ -45,7 +45,7 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
 
   if (!inv) {
     return (
-      <div className="p-8 max-w-[720px] mx-auto">
+      <div className="max-w-[720px] mx-auto">
         <Card><p className="text-sm text-muted text-center py-8">Memuat invoice…</p></Card>
       </div>
     );
@@ -55,7 +55,7 @@ export function InvoiceDetailClient({ invoiceId }: { invoiceId: string }) {
   const isOverdue = inv.isOverdue;
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-[720px] mx-auto space-y-5">
+    <div className="max-w-[720px] mx-auto space-y-5">
       <Link href="/admin/invoices" className="inline-flex items-center gap-1.5 text-[13.5px] font-medium text-muted hover:text-brand">
         <ArrowLeft className="h-4 w-4" /> Kembali ke Daftar Invoice
       </Link>

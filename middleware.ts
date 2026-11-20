@@ -18,9 +18,11 @@ const PUBLIC_PATHS = [
   '/reset-password',
   '/pricing',
   '/features',
-  '/karir',
+  '/jobs',
   '/o',
   '/esign/sign', // tautan tanda tangan: dicek kedaluwarsanya sebelum login
+  '/meet/guest', // tautan undangan tamu WOORK MEET: dicek tokennya sebelum login
+  '/meet/live', // room publik tamu WOORK MEET (?token=): tanpa login, dicek tokennya di halaman
 ];
 
 // Halaman login admin (/admin) bersifat publik TAPI persis di path itu saja:

@@ -3,7 +3,7 @@ import { Menu } from 'lucide-react';
 import { Logo } from '@/components/ui/primitives';
 
 /**
- * Header situs publik — dipakai di landing page DAN halaman karir,
+ * Header situs publik — dipakai di landing page DAN halaman jobs,
  * agar tampilannya persis sama. `anchorBase` membedakan link jangkar:
  * landing pakai '#produk', halaman lain pakai '/#produk'.
  */
@@ -13,7 +13,7 @@ export default function SiteHeader({ anchorBase = '' }: { anchorBase?: string })
     { label: 'Fitur', href: `${anchorBase}#fitur` },
     { label: 'Solusi', href: `${anchorBase}#solusi` },
     { label: 'Harga', href: `${anchorBase}#harga` },
-    { label: 'Karir', href: '/karir' },
+    { label: 'Jobs', href: '/jobs' },
     { label: 'Tentang Kami', href: `${anchorBase}#tentang` },
   ];
 

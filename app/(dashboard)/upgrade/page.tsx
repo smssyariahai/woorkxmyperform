@@ -53,7 +53,7 @@ export default async function SubscriptionPage() {
       : null;
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-[900px] mx-auto space-y-5">
+    <div className="max-w-[900px] mx-auto space-y-5">
       <div>
         <Link href="/dashboard" className="inline-flex items-center gap-1.5 text-[13.5px] font-medium text-muted hover:text-brand mb-3">
           <ArrowLeft className="h-4 w-4" /> Kembali ke dashboard

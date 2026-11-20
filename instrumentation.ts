@@ -6,6 +6,14 @@ export async function register() {
   // secara lazy di konteks utama via getSessionInfo()/sendText() di lib/wa/manager.ts.
   // Dua konteks = dua socket = loop "connectionReplaced" 440.
   if (process.env.NEXT_RUNTIME === 'nodejs') {
-    // sengaja kosong — hook dipertahankan untuk kebutuhan masa depan
+    // Modul Kantor Virtual (engine agent di-restore 2026-11-20): sapu tugas
+    // yatim — tugas RUNNING pasti terhenti oleh restart VM, tandai FAILED
+    // dan kembalikan agent ke IDLE (lib/agents/scheduler.ts).
+    // Dilewati saat build agar tidak menyentuh DB saat `next build`.
+    if (process.env.NEXT_PHASE !== 'phase-production-build') {
+      import('@/lib/agents/scheduler')
+        .then(({ sweepOrphanedTasks }) => sweepOrphanedTasks())
+        .catch((e) => console.error('[agents] orphan sweep gagal:', e));
+    }
   }
 }

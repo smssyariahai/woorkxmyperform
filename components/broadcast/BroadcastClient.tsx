@@ -214,7 +214,7 @@ export function BroadcastClient() {
   }
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-[1400px] mx-auto space-y-5">
+    <div className="max-w-[1400px] mx-auto space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-[22px] font-bold text-ink">Broadcast</h1>
@@ -555,7 +555,7 @@ export function BroadcastClient() {
             )}
             <div>
               <p className="text-muted text-[12px] mb-2">Penerima ({detail.recipients?.length ?? 0})</p>
-              <div className="max-h-64 overflow-y-auto rounded-card border border-line">
+              <div className="max-h-64 overflow-x-auto overflow-y-auto rounded-card border border-line">
                 <table className="w-full text-[12.5px]">
                   <thead className="sticky top-0 bg-canvas">
                     <tr className="text-left text-muted">

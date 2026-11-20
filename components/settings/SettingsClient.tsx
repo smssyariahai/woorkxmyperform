@@ -105,7 +105,7 @@ export function SettingsClient() {
 
   if (loading) {
     return (
-      <div className="p-8 max-w-[1000px] mx-auto space-y-4">
+      <div className="max-w-[1000px] mx-auto space-y-4">
         <Skeleton className="h-10 w-64" />
         <Skeleton className="h-64 w-full" />
       </div>
@@ -113,7 +113,7 @@ export function SettingsClient() {
   }
   if (error || !data) {
     return (
-      <div className="p-8 max-w-[1000px] mx-auto">
+      <div className="max-w-[1000px] mx-auto">
         <div className="card"><ErrorState message={error} onRetry={load} /></div>
       </div>
     );
@@ -122,7 +122,7 @@ export function SettingsClient() {
   const canManage = ['OWNER', 'ADMIN'].includes(data.role);
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-[1000px] mx-auto space-y-5">
+    <div className="max-w-[1000px] mx-auto space-y-5">
       <div>
         <h1 className="text-[22px] font-bold text-ink">Pengaturan</h1>
         <p className="text-sm text-muted">Kelola workspace, profil, dan keamanan akun Anda.</p>

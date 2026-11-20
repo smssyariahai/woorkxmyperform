@@ -40,7 +40,7 @@ export async function generateMetadata({ params }: { params: { subdomain: string
   if (!o) return { title: 'Kantor tidak ditemukan' };
   return {
     title: `${o.name} — Karir & Profil Kantor`,
-    description: o.tagline ?? o.description?.slice(0, 160) ?? `Profil dan lowongan kerja ${o.name}.`,
+    description: o.tagline ?? o.description?.slice(0, 160) ?? `Profil dan Jobs ${o.name}.`,
   };
 }
 

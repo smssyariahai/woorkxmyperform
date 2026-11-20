@@ -134,7 +134,7 @@ export function BotAiAdmin() {
   if (!cfg) return <div className="p-6 text-sm text-muted">Gagal memuat.</div>;
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-[1100px] mx-auto space-y-5">
+    <div className="max-w-[1100px] mx-auto space-y-5">
       {stats && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <Card className="!p-5">

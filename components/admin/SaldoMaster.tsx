@@ -114,7 +114,7 @@ export function SaldoMaster() {
   ] : [];
 
   return (
-    <div className="mx-auto max-w-[1200px] space-y-6 p-4 sm:p-6 lg:p-8">
+    <div className="mx-auto max-w-[1200px] space-y-6">
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>

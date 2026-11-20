@@ -96,7 +96,7 @@ export function BotAiOwner() {
   if (!data) return <div className="p-6 text-sm text-muted">Gagal memuat.</div>;
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-[1100px] mx-auto space-y-5">
+    <div className="max-w-[1100px] mx-auto space-y-5">
       {!data.globalEnabled && (
         <Card className="!border-amber-300 !bg-amber-50 dark:!bg-amber-900/20">
           <p className="flex items-center gap-2 text-[13.5px] font-medium text-amber-800 dark:text-amber-200">

@@ -187,7 +187,7 @@ export function ChannelsClient() {
   }
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-[1400px] mx-auto space-y-5">
+    <div className="max-w-[1400px] mx-auto space-y-5">
       <div>
         <h1 className="text-[22px] font-bold text-ink">Saluran</h1>
         <p className="text-sm text-muted">Hubungkan channel komunikasi agar semua chat pelanggan masuk ke satu inbox.</p>

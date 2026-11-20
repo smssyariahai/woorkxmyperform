@@ -101,7 +101,7 @@ export function OfficeDetailClient({ id }: { id: string }) {
   }
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-[1200px] mx-auto space-y-5">
+    <div className="max-w-[1200px] mx-auto space-y-5">
       <Link href="/admin/offices" className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-ink">
         <ArrowLeft className="h-4 w-4" /> Kembali ke daftar kantor
       </Link>

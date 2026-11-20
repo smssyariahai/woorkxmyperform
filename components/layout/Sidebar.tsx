@@ -32,8 +32,42 @@ import {
   CreditCard,
   User,
   ChevronDown,
+  BookOpen,
+  BookMarked,
+  Clock,
+  Compass,
+  CircleDot,
+  Heart,
+  Hand,
+  HandCoins,
+  UserPlus,
+  Sparkles,
+  ScrollText,
+  Moon,
+  Sun,
+  Droplets,
+  Scale,
+  Landmark,
+  CalendarDays,
+  GraduationCap,
+  MapPin,
+  Coins,
+  Banknote,
+  Percent,
+  Table,
+  Ticket,
+  Video,
+  Smartphone,
+  Archive,
+  ListChecks,
+  ClipboardList,
+  LayoutTemplate,
+  BarChart3,
+  Trophy,
+  Bell,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import { signOut, useSession } from 'next-auth/react';
 import { toast } from 'sonner';
 import { MODULAR_MODULES, type ModularKey, type ModularPageDef, type ModuleAccessLevel } from '@/lib/modular';
@@ -62,13 +96,92 @@ const ICONS: Record<string, any> = {
   '/upgrade': CreditCard,
   '/admin/dashboard': Crown,
   '/admin/offices': Globe2,
+  '/admin/offices/new': Building2,
+  '/admin/pengumuman': Megaphone,
+  '/admin/pengguna': Users,
+  '/admin/peran-platform': KeyRound,
+  '/admin/tiket': Ticket,
   '/admin/invoices': Receipt,
   '/admin/modul': Tag,
   '/admin/saldo-master': Wallet,
   '/admin/audit': ShieldCheck,
   '/admin/platform-admins': KeyRound,
   '/admin/pengaturan': Settings2,
+  '/islami': BookOpen,
+  '/islami/al-quran': BookOpen,
+  '/islami/hadits': BookMarked,
+  '/islami/jadwal-shalat': Clock,
+  '/islami/kompas-kiblat': Compass,
+  '/islami/tasbih': CircleDot,
+  '/islami/dzikir': Heart,
+  '/islami/doa-harian': Hand,
+  '/islami/asmaul-husna': Sparkles,
+  '/islami/kitab-maulid': ScrollText,
+  '/islami/panduan-shalat': Moon,
+  '/islami/panduan-puasa': Sun,
+  '/islami/thaharah': Droplets,
+  '/islami/kalkulator-zakat': Scale,
+  '/islami/kisah-nabi': Users,
+  '/islami/malaikat-kitab': Landmark,
+  '/islami/kalender-hijriah': CalendarDays,
+  '/islami/adab-islami': GraduationCap,
+  '/islami/tempat-bersejarah': MapPin,
+  '/emas': Coins,
+  '/emas/kalkulator-gadai-emas': Scale,
+  '/emas/kalkulator-pelunasan-emas': Banknote,
+  '/emas/pke': Wallet,
+  '/emas/simulasi-emas': Percent,
+  '/emas/simulasi-emas/pengaturan-url': Settings2,
+  '/emas/tabel-harga-emas': Table,
+  '/emas/calculator': Smartphone,
+  '/pengumuman': Megaphone,
+  '/tiket': Ticket,
+  '/meet': Video,
+  '/earsip': Archive,
+  '/earsip/kategori': Archive,
+  '/tal': ListChecks,
+  '/tal/tasks': ClipboardList,
+  '/tal/templates': LayoutTemplate,
+  '/tal/rekapitulasi': BarChart3,
+  '/tal/rekapitulasi-hr': Users,
+  '/tal/badges': Trophy,
+  '/tal/preferences': Bell,
+  '/tal/tal-tim-saya': Users,
+  '/tal/tal-tim-saya/pengaturan': Settings2,
+  '/tal/kalender-kerja': CalendarDays,
+  '/koperasi': Landmark,
+  '/koperasi/anggota': Users,
+  '/koperasi/anggota-baru': UserPlus,
+  '/koperasi/simpanan-baru': Wallet,
+  '/koperasi/pembiayaan-baru': HandCoins,
+  '/koperasi/pengaturan': Settings2,
 };
+
+/** Ikon header tiap modul di sidebar (satu ikon per seksi, bukan per halaman). */
+const MODULE_ICONS: Record<ModularKey, LucideIcon> = {
+  dashboard: LayoutDashboard,
+  tal: ListChecks,
+  koperasi: Landmark,
+  emas: Coins,
+  islami: BookOpen,
+  pengumuman: Megaphone,
+  tiket: Ticket,
+  kantor: Building2,
+  meet: Video,
+  chat: Inbox,
+  hris: Users,
+  esign: FileSignature,
+  earsip: Archive,
+  audit: ScrollText,
+  setting: Settings,
+  pusat: Crown,
+};
+
+/** Urutan kelompok di sidebar: modul harian di "Menu Utama", admin di "Sistem". */
+const SIDEBAR_GROUPS = [
+  { key: 'utama' as const, label: 'Menu Utama' },
+  { key: 'sistem' as const, label: 'Sistem' },
+];
 
 export interface MembershipInfo {
   organizationId: string;
@@ -129,6 +242,10 @@ export function Sidebar({
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
+  /** Area /admin (bukan /admin-kantor): sidebar hanya menampilkan modul
+   *  Administrator Pusat — modul kantor (TAL, Emas, Islami, ...) disembunyikan
+   *  agar admin fokus. */
+  const isAdminArea = pathname === '/admin' || pathname.startsWith('/admin/');
   const router = useRouter();
   const { update } = useSession();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -180,9 +297,12 @@ export function Sidebar({
    *  refresh mempertahankan seksi yang sedang terbuka, sedangkan login
    *  selalu mulai terlipat (halaman login + tombol Keluar menghapus kunci ini). */
   const SIDEBAR_SECTIONS_KEY = 'woork-sidebar-sections';
-  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(MODULAR_MODULES.map((m) => [m.key, true]))
-  );
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
+    const init = Object.fromEntries(MODULAR_MODULES.map((m) => [m.key, true]));
+    // Muatan pertama di area /admin: Administrator Pusat langsung terbuka.
+    if (pathname === '/admin' || pathname.startsWith('/admin/')) delete init.pusat;
+    return init;
+  });
   const [sectionsHydrated, setSectionsHydrated] = useState(false);
   const firstNav = useRef(true);
 
@@ -195,6 +315,19 @@ export function Sidebar({
       }
     } catch {
       /* abaikan */
+    }
+    // Di area /admin, Administrator Pusat selalu terbuka (abaikan simpanan lama).
+    if (
+      typeof window !== 'undefined' &&
+      (window.location.pathname === '/admin' ||
+        window.location.pathname.startsWith('/admin/'))
+    ) {
+      setCollapsedSections((prev) => {
+        if (!prev.pusat) return prev;
+        const next = { ...prev };
+        delete next.pusat;
+        return next;
+      });
     }
     setSectionsHydrated(true);
   }, []);
@@ -301,14 +434,14 @@ export function Sidebar({
         onClick={onNavigate}
         title={page.label}
         className={cn(
-          'flex items-center gap-3 rounded-btn px-3 py-2.5 text-[13.5px] font-medium transition-colors',
+          'flex items-center gap-2.5 rounded-btn px-3 py-2 text-[12.5px] font-medium transition-colors',
           active
             ? 'bg-brand-50 text-brand-700 dark:bg-brand-900/40 dark:text-brand-100'
             : 'text-muted hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-ink',
           collapsed && 'justify-center px-0'
         )}
       >
-        <Icon className="h-[18px] w-[18px] shrink-0" />
+        <Icon className="h-4 w-4 shrink-0" />
         {!collapsed && <span className="flex-1">{page.label}</span>}
         {!collapsed && page.href === '/inbox' && unread > 0 && (
           <span className="badge-red !px-2">{unread > 99 ? '99+' : unread}</span>
@@ -317,27 +450,66 @@ export function Sidebar({
     );
   };
 
+  /** Kelompokkan halaman menurut `page.section` (urutan kemunculan pertama
+   *  dipertahankan). Halaman tanpa section masuk satu kelompok tanpa header,
+   *  sehingga modul lain tampil persis seperti sebelumnya (flat). */
+  const groupedPages = (pages: ModularPageDef[]): { section: string | null; pages: ModularPageDef[] }[] => {
+    const groups: { section: string | null; pages: ModularPageDef[] }[] = [];
+    for (const p of pages) {
+      const key = p.section ?? null;
+      const g = groups.find((x) => x.section === key);
+      if (g) g.pages.push(p);
+      else groups.push({ section: key, pages: [p] });
+    }
+    return groups;
+  };
+
   const section = (moduleKey: ModularKey, title: string, pages: ModularPageDef[]) => {
     const visible = pages.filter((p) => canItem(p, moduleKey));
     if (visible.length === 0) return null;
     // Mode ikon (sidebar menciut): seksi selalu terbuka, judul disembunyikan seperti sebelumnya.
     const isCollapsed = !collapsed && !!collapsedSections[moduleKey];
+    // Seksi ikut menyala bila salah satu halamannya sedang dibuka.
+    const sectionActive = visible.some((p) => isActive(p.href, visible));
+    const ModuleIcon = MODULE_ICONS[moduleKey] ?? LayoutDashboard;
     return (
-      <div className="pt-1" key={moduleKey}>
+      <div key={moduleKey}>
         {!collapsed && (
           <button
             type="button"
             onClick={() => toggleSection(moduleKey)}
             aria-expanded={!isCollapsed}
-            className="flex w-full items-center justify-between rounded-md px-3 pb-1.5 text-[10.5px] font-bold uppercase tracking-widest text-muted/70 hover:text-muted"
+            className={cn(
+              'flex w-full items-center gap-2.5 rounded-btn px-3 py-2 text-[13px] font-semibold transition-colors',
+              // Seksi aktif HANYA diwarnai teksnya (tanpa background): kalau
+              // header ikut ber-background biru, bloknya menempel dengan
+              // item anak yang aktif dan terlihat seperti satu blok bug.
+              sectionActive
+                ? 'text-brand-700 dark:text-brand-100'
+                : 'text-ink/85 hover:bg-slate-100 dark:hover:bg-slate-800'
+            )}
           >
-            <span>{title}</span>
+            <ModuleIcon className="h-[18px] w-[18px] shrink-0" />
+            <span className="flex-1 text-left">{title}</span>
             <ChevronDown
-              className={cn('h-3.5 w-3.5 shrink-0 transition-transform', isCollapsed && '-rotate-90')}
+              className={cn('h-4 w-4 shrink-0 text-muted transition-transform', isCollapsed && '-rotate-90')}
             />
           </button>
         )}
-        {!isCollapsed && <div className="space-y-1">{visible.map((p) => item(p, moduleKey, visible))}</div>}
+        {!isCollapsed && (
+          <div className={cn('mt-1 space-y-0.5 pb-1', !collapsed && 'pl-5')}>
+            {groupedPages(visible).map((group) => (
+              <div key={group.section ?? ''}>
+                {group.section && (
+                  <p className="px-3 pb-0.5 pt-2 text-[10px] font-bold uppercase tracking-widest text-muted/70">
+                    {group.section}
+                  </p>
+                )}
+                {group.pages.map((p) => item(p, moduleKey, visible))}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   };
@@ -440,8 +612,46 @@ export function Sidebar({
         )}
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-1" aria-label="Navigasi utama">
-        {MODULAR_MODULES.map((mod) => section(mod.key, mod.label, mod.pages))}
+      <nav className="flex-1 overflow-y-auto px-3 py-3" aria-label="Navigasi utama">
+        {isAdminArea ? (
+          <div className="space-y-1">
+            {section(
+              'pusat',
+              'Administrator Pusat',
+              MODULAR_MODULES.find((m) => m.key === 'pusat')!.pages
+            )}
+            {!collapsed && <div className="mx-2 mb-2 mt-2 border-t border-line" />}
+            <Link
+              href="/dashboard"
+              onClick={onNavigate}
+              title="Dashboard Kantor"
+              className={cn(
+                'flex items-center gap-2.5 rounded-btn px-3 py-2 text-[12.5px] font-medium transition-colors text-muted hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-ink',
+                collapsed && 'justify-center px-0'
+              )}
+            >
+              <LayoutDashboard className="h-4 w-4 shrink-0" />
+              {!collapsed && <span className="flex-1">Dashboard Kantor</span>}
+            </Link>
+          </div>
+        ) : (
+          SIDEBAR_GROUPS.map((group, gi) => {
+          const mods = MODULAR_MODULES.filter((m) => (m.group ?? 'utama') === group.key);
+          const rendered = mods.map((mod) => section(mod.key, mod.label, mod.pages));
+          if (rendered.every((r) => r === null)) return null;
+          return (
+            <div key={group.key} className={gi === 0 ? undefined : 'mt-2'}>
+              {gi > 0 && !collapsed && <div className="mx-2 mb-2 border-t border-line" />}
+              {!collapsed && (
+                <p className="px-3 pb-1 pt-1 text-[10px] font-bold uppercase tracking-widest text-muted/60">
+                  {group.label}
+                </p>
+              )}
+              <div className="space-y-1">{rendered}</div>
+            </div>
+          );
+          })
+        )}
       </nav>
 
       <div className="p-3 relative">

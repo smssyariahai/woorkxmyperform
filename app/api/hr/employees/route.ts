@@ -12,13 +12,18 @@ export async function GET(req: Request) {
     const ctx = await requirePermission('HR_VIEW');
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status') ?? '';
+    const department = searchParams.get('department') ?? '';
     const q = searchParams.get('q')?.trim() ?? '';
     const where: any = { organizationId: ctx.organizationId };
     if (status) where.status = status;
+    // HrEmployee.department teks bebas — filter cocok persis dengan nilai
+    // yang ada (daftar nilai diisi client dari data yang dimuat).
+    if (department) where.department = department;
     if (q) {
       where.OR = [
         { name: { contains: q, mode: 'insensitive' } },
         { employeeNo: { contains: q, mode: 'insensitive' } },
+        { nik: { contains: q, mode: 'insensitive' } },
         { position: { contains: q, mode: 'insensitive' } },
       ];
     }

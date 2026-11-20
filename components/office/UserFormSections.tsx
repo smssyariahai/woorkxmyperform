@@ -844,16 +844,22 @@ export function ModuleAccessSection({
   // daftar lama bila refs belum membawa subscribedModules).
   const tenantModules = MODULAR_MODULES.filter((m) => m.key !== 'pusat');
   const orgActive = (key: string) => {
+    // Modul non-billable selalu aktif untuk kantor (lib/subscription.ts:
+    // isModuleSubscribed) — pengaturannya jangan terkunci walau daftar
+    // langganan tidak menyebutkannya.
+    const mod = MODULAR_MODULES.find((m) => m.key === key);
+    if (mod && !mod.billable) return true;
     if (refs.subscribedModules) return refs.subscribedModules.includes(key);
     if (key === 'dashboard' || key === 'setting') return true;
     const legacy = MODULAR_TO_LEGACY[key as keyof typeof MODULAR_TO_LEGACY] ?? [];
     return refs.orgModules.length === 0 || legacy.some((l) => refs.orgModules.includes(l));
   };
-  const levelLabel: Record<string, string> = {
-    WRITE: 'Write — kelola penuh',
-    READ: 'Read — hanya melihat',
-    NONE: 'Tidak ada akses',
-  };
+  // Pilihan hak akses sebagai tombol (satu klik langsung terpilih).
+  const levelOptions = [
+    { value: 'WRITE' as const, short: 'Write', title: 'Write — kelola penuh', activeCls: 'bg-emerald-600 text-white' },
+    { value: 'READ' as const, short: 'Read', title: 'Read — hanya melihat', activeCls: 'bg-sky-600 text-white' },
+    { value: 'NONE' as const, short: 'Tidak ada', title: 'Tidak ada akses', activeCls: 'bg-slate-500 text-white' },
+  ];
   return (
     <Accordion title="Hak Akses Modul" subtitle="Atur tiap modul: Read (hanya melihat) atau Write (kelola penuh). Tanpa pilihan = Write." open={open} onToggle={onToggle}>
       <div className="space-y-3">
@@ -866,7 +872,7 @@ export function ModuleAccessSection({
           const active = orgActive(m.key);
           const level = (s.moduleAccess[m.key] ?? 'WRITE') as 'READ' | 'WRITE' | 'NONE';
           return (
-            <div key={m.key} className="flex items-center gap-3 rounded-btn border border-slate-200 px-4 py-3">
+            <div key={m.key} className="flex flex-wrap items-center gap-3 rounded-btn border border-slate-200 px-4 py-3">
               <div className="min-w-0 flex-1">
                 <span className="block text-[14px] font-medium text-ink">{m.label}</span>
                 <span className="block text-[12px] text-muted">
@@ -874,19 +880,23 @@ export function ModuleAccessSection({
                   {!active ? ' — tidak dilanggan kantor ini.' : level === 'WRITE' ? ' — kelola penuh.' : level === 'READ' ? ' — hanya melihat.' : ' — tidak bisa dibuka.'}
                 </span>
               </div>
-              <select
-                value={level}
-                disabled={!active}
-                onChange={(e) =>
-                  update({ moduleAccess: { ...s.moduleAccess, [m.key]: e.target.value as 'READ' | 'WRITE' | 'NONE' } })
-                }
-                className="input w-[190px] !py-2 text-[13px]"
-                aria-label={`Hak akses modul ${m.label}`}
-              >
-                <option value="WRITE">{levelLabel.WRITE}</option>
-                <option value="READ">{levelLabel.READ}</option>
-                <option value="NONE">{levelLabel.NONE}</option>
-              </select>
+              <div className="flex shrink-0 divide-x divide-slate-200 overflow-hidden rounded-lg border border-slate-200" role="group" aria-label={`Hak akses modul ${m.label}`}>
+                {levelOptions.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    disabled={!active}
+                    title={opt.title}
+                    aria-pressed={level === opt.value}
+                    onClick={() => update({ moduleAccess: { ...s.moduleAccess, [m.key]: opt.value } })}
+                    className={`px-2.5 py-2 text-[12px] font-medium leading-none transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                      level === opt.value ? opt.activeCls : 'bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {opt.short}
+                  </button>
+                ))}
+              </div>
             </div>
           );
         })}

@@ -142,7 +142,7 @@ export function CustomerDetailClient({ id }: { id: string }) {
 
   if (loading) {
     return (
-      <div className="p-4 sm:p-6 lg:p-8 grid lg:grid-cols-[280px_minmax(0,1fr)_300px] gap-4 max-w-[1500px] mx-auto min-w-0">
+      <div className="grid lg:grid-cols-[280px_minmax(0,1fr)_300px] gap-4 max-w-[1500px] mx-auto min-w-0">
         <Skeleton className="h-96 w-full" />
         <Skeleton className="h-96 w-full" />
         <Skeleton className="h-96 w-full" />
@@ -151,7 +151,7 @@ export function CustomerDetailClient({ id }: { id: string }) {
   }
   if (error || !data) {
     return (
-      <div className="p-8 max-w-[1500px] mx-auto">
+      <div className="max-w-[1500px] mx-auto">
         <div className="card"><ErrorState message={error} onRetry={load} /></div>
       </div>
     );
@@ -169,7 +169,7 @@ export function CustomerDetailClient({ id }: { id: string }) {
   ];
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-[1500px] mx-auto">
+    <div className="max-w-[1500px] mx-auto">
       <Link href="/crm" className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-brand mb-4">
         <ArrowLeft className="h-3.5 w-3.5" /> Kembali ke CRM
       </Link>

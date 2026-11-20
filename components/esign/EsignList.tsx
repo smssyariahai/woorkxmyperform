@@ -163,7 +163,7 @@ export function EsignList() {
   );
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-5 p-4 sm:p-6 lg:p-8">
+    <div className="mx-auto w-full max-w-6xl space-y-5">
       <EsignClient onEvent={() => refetch()} />
 
       {/* Header */}
@@ -235,7 +235,8 @@ export function EsignList() {
         ) : items.length === 0 ? (
           emptyState
         ) : (
-          <table className="w-full text-left text-[13.5px]">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-[13.5px]">
             <thead>
               <tr className="border-b border-line bg-slate-50/70 text-[11.5px] uppercase tracking-wider text-muted dark:bg-slate-800/40">
                 <th className="px-5 py-3.5 font-semibold">Dokumen</th>
@@ -283,7 +284,8 @@ export function EsignList() {
                 );
               })}
             </tbody>
-          </table>
+            </table>
+          </div>
         )}
       </Card>
 

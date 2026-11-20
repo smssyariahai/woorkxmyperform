@@ -14,7 +14,6 @@ const MODULES = [
   { key: 'hr', label: 'HR & Rekrutmen' },
   { key: 'broadcast', label: 'Broadcast' },
   { key: 'bot', label: 'Bot' },
-  { key: 'kantor', label: 'Kantor Virtual' },
   { key: 'channels', label: 'Saluran' },
 ];
 
@@ -148,7 +147,7 @@ export function OfficeSettingsClient() {
   }
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-[900px] mx-auto space-y-5">
+    <div className="max-w-[900px] mx-auto space-y-5">
       <div>
         <h1 className="text-[22px] font-bold text-ink">Pengaturan Kantor</h1>
         <p className="text-sm text-muted">Profil dan modul yang aktif di kantor ini.</p>

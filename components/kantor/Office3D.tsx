@@ -1,0 +1,480 @@
+/**
+ * Diadaptasi dari Ruang (yugienugraha/ruang v0.2.0, MIT © 2026 yugienugraha).
+ * File asli: src/pages/Office3D.tsx — dilisensikan di bawah lisensi MIT.
+ * Di-port ke WOORK (Next.js 14 + React 18 + @react-three/fiber 8 + three 0.169).
+ *
+ * Penyesuaian terhadap aslinya:
+ * - Kontrak data: KantorStation WOORK (lib/kantor/types.ts), bukan OfficeStation Hermes.
+ * - Warna karakter: hash nama ala src/agents.ts Ruang (di-inline di bawah) + avatarColor
+ *   dari DB WOORK sebagai warna baju bila ada.
+ * - Badge state: adaptasi src/office-state.ts Ruang (tanpa bagian gateway/Source Hermes).
+ * - Tema: dibaca dari document.documentElement.dataset.theme bila ada; bila tidak ada,
+ *   fallback terang + tombol ganti tema scene sendiri (disimpan di localStorage).
+ *   (WOORK tidak memakai atribut data-theme yang sama dengan Ruang.)
+ * - Gaya label/tombol: Tailwind WOORK, bukan styles.css Ruang (tidak diimpor).
+ * - Klik agent memanggil onSelectAgent(station); dialog detail dibuat di Wave 2.
+ * - Kunci localStorage diganti awalan `woork.kantor*` (bukan `mc.*` milik Ruang).
+ */
+
+'use client'
+
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type MutableRefObject } from 'react'
+import * as THREE from 'three'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import type { KantorStation } from '@/lib/kantor/types'
+import { clampTarget, createLayout, FLOOR_HEIGHT, floorOf, GAME_ROOM, placementFor, walkPath3, type Floor, type OfficeLayout, type Placement, type Vec3 } from './scene/office3d-layout'
+import { Environment } from './scene/environment'
+import { RBox, WorkDesk } from './scene/props'
+
+// ---------------------------------------------------------------------------
+// Warna karakter — diadaptasi dari src/agents.ts Ruang (MIT © 2026 yugienugraha).
+// Tiap agent mendapat tampilan deterministik dari hash FNV-1a namanya.
+
+interface AgentLook { hair: string; skin: string; shirt: string; pants: string }
+
+const HAIR = ['#1d293c', '#b54b45', '#6a4d8d', '#3b2a20', '#c9a24a', '#2f4f3a', '#8b5a2b', '#11151c']
+const SKIN = ['#e9b57d', '#c98e5a', '#f1c9a0', '#a8714a', '#dca06e']
+const SHIRT = ['#e6b34e', '#70bdcb', '#93ca67', '#e76f51', '#8f7ae6', '#f4a3b4', '#4f9c7a', '#d9534f', '#5a8dee', '#c7a17a']
+const PANTS = ['#36475d', '#374052', '#344349', '#4a3b2f', '#2f3a44', '#3d2f4a']
+
+function hashName(name: string): number {
+  let hash = 2166136261
+  for (let index = 0; index < name.length; index += 1) {
+    hash ^= name.charCodeAt(index)
+    hash = Math.imul(hash, 16777619)
+  }
+  return hash >>> 0
+}
+
+function agentLook(id: string): AgentLook {
+  const hash = hashName(id)
+  return { hair: HAIR[hash % HAIR.length], skin: SKIN[(hash >>> 4) % SKIN.length], shirt: SHIRT[(hash >>> 8) % SHIRT.length], pants: PANTS[(hash >>> 12) % PANTS.length] }
+}
+
+// Badge state — diadaptasi dari officeStateBadge di src/office-state.ts Ruang.
+type BadgeTone = 'good' | 'muted' | 'unknown'
+// Label badge berbahasa Indonesia (UI Kantor Virtual berbahasa Indonesia):
+// agent yang sedang bekerja tampil "Bekerja" (hijau, tone good).
+const KANTOR_STATE_LABEL: Record<KantorStation['state'], string> = {
+  Idle: 'Idle',
+  Working: 'Bekerja',
+  Reviewing: 'Meninjau',
+  Collaborating: 'Collaborating',
+  Offline: 'Offline',
+  Unknown: 'Unknown',
+}
+
+function kantorStateBadge(state: KantorStation['state']): { label: string; tone: BadgeTone } {
+  return { label: KANTOR_STATE_LABEL[state], tone: state === 'Offline' ? 'muted' : state === 'Unknown' || state === 'Idle' ? 'unknown' : 'good' }
+}
+
+const BADGE_CLASSES: Record<BadgeTone, string> = {
+  good: 'bg-emerald-900/90 text-emerald-200',
+  muted: 'bg-slate-700/90 text-slate-300',
+  unknown: 'bg-amber-900/90 text-amber-200',
+}
+
+type Registry<T> = MutableRefObject<Map<string, T>>
+
+/** Ground-floor spots outside the building (gang, sidewalk, yard) stay in view from lantai 2. */
+function outdoors(x: number, z: number, layout: OfficeLayout): boolean {
+  const { minX, maxX, maxZ } = layout.building
+  const inGameRoom = x > GAME_ROOM.minX && x < GAME_ROOM.maxX && z > GAME_ROOM.minZ && z < GAME_ROOM.maxZ
+  return x < minX || z > maxZ || (x > maxX && !inGameRoom)
+}
+
+function Character({ station, placement, layout, floor, onSelect, anchor }: { station: KantorStation; placement: Placement; layout: OfficeLayout; floor: Floor; onSelect: (station: KantorStation) => void; anchor: (object: THREE.Object3D | null) => void }) {
+  const root = useRef<THREE.Group>(null)
+  const body = useRef<THREE.Group>(null)
+  const leftLeg = useRef<THREE.Mesh>(null)
+  const rightLeg = useRef<THREE.Mesh>(null)
+  const leftArm = useRef<THREE.Mesh>(null)
+  const rightArm = useRef<THREE.Mesh>(null)
+  const look = agentLook(station.id)
+  const colors: AgentLook = { ...look, shirt: station.avatarColor || look.shirt }
+  const offline = station.state === 'Offline'
+  const unknown = station.state === 'Unknown'
+  const tint = (color: string) => offline ? '#7b7f7d' : color
+  // Only the first placement is applied as a prop; later changes are walked to via the aisle.
+  const [start] = useState<Vec3>(() => placement.position)
+  const path = useRef<THREE.Vector3[]>([])
+  const destination = placement.position.join(',')
+  useEffect(() => {
+    const group = root.current
+    if (!group) return
+    path.current = walkPath3([group.position.x, group.position.y, group.position.z], placement.position, layout).map(([px, py, pz]) => new THREE.Vector3(px, py, pz))
+    // placement.position is captured through `destination`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [destination])
+
+  useFrame((state, delta) => {
+    const group = root.current
+    if (!group) return
+    const time = state.clock.elapsedTime
+    const next = path.current[0]
+    let walking = false
+    if (next) {
+      const toNext = next.clone().sub(group.position)
+      const distance = toNext.length()
+      if (distance < 0.04) {
+        path.current.shift()
+      } else {
+        walking = true
+        group.position.add(toNext.clone().normalize().multiplyScalar(Math.min(distance, delta * 2.6)))
+        if (Math.hypot(toNext.x, toNext.z) > 0.01) {
+          const heading = Math.atan2(toNext.x, toNext.z)
+          group.rotation.y += Math.atan2(Math.sin(heading - group.rotation.y), Math.cos(heading - group.rotation.y)) * 0.25
+        }
+      }
+    }
+    // Only the floor in view is drawn; from lantai 2 the agents outside on the ground stay visible.
+    const upstairs = group.position.y > FLOOR_HEIGHT / 2
+    group.visible = floor === 2 ? upstairs || outdoors(group.position.x, group.position.z, layout) : !upstairs
+    if (!walking) group.rotation.y += Math.atan2(Math.sin(placement.facing - group.rotation.y), Math.cos(placement.facing - group.rotation.y)) * 0.12
+    const swing = walking ? Math.sin(time * 10) * 0.6 : 0
+    const arrived = !walking && path.current.length === 0
+    const lying = arrived && placement.pose === 'lie'
+    const onFloor = arrived && placement.pose === 'floor'
+    // In bed (or the hammock) the body lines up with it exactly, not wherever the walk left it.
+    if (lying) group.rotation.y = placement.facing
+    const seated = !walking && (placement.seated || onFloor)
+    if (leftLeg.current && rightLeg.current) {
+      leftLeg.current.rotation.x = lying ? 0 : seated ? -Math.PI / 2.2 : swing
+      rightLeg.current.rotation.x = lying ? 0 : seated ? -Math.PI / 2.2 : -swing
+    }
+    if (leftArm.current && rightArm.current) {
+      const typing = !walking && (station.state === 'Working' || station.state === 'Reviewing')
+      const talking = !walking && station.state === 'Collaborating'
+      leftArm.current.rotation.x = lying ? 0 : walking ? -swing : typing ? -1.1 + Math.sin(time * 14) * 0.12 : talking ? -0.4 + Math.sin(time * 3) * 0.3 : 0
+      rightArm.current.rotation.x = lying ? 0 : walking ? swing : typing ? -1.1 + Math.cos(time * 14) * 0.12 : 0
+    }
+    if (body.current) {
+      // Lying down: the body tips back so the head rests towards the pillow (local -z).
+      body.current.rotation.x += ((lying ? -Math.PI / 2 : 0) - body.current.rotation.x) * 0.2
+      const talk = station.state === 'Collaborating' && !walking ? Math.abs(Math.sin(time * 5)) * 0.03 : 0
+      const breathe = station.state === 'Idle' ? Math.sin(time * (lying ? 1.2 : 2)) * 0.015 : 0
+      body.current.position.y = lying ? (placement.height ?? 0.5) + 0.16 + breathe : (onFloor ? -0.5 : seated ? -0.14 : 0) + talk + breathe
+    }
+  })
+
+  return <group ref={root} position={start}>
+    <group ref={body} onClick={(event) => { event.stopPropagation(); onSelect(station) }} onPointerOver={() => { document.body.style.cursor = 'pointer' }} onPointerOut={() => { document.body.style.cursor = '' }}>
+      <mesh ref={leftLeg} position={[-0.11, 0.66, 0]} castShadow geometry={legGeometry}><meshStandardMaterial color={tint(colors.pants)} roughness={0.8}/></mesh>
+      <mesh ref={rightLeg} position={[0.11, 0.66, 0]} castShadow geometry={legGeometry}><meshStandardMaterial color={tint(colors.pants)} roughness={0.8}/></mesh>
+      <RBox position={[0, 0.98, 0]} size={[0.48, 0.58, 0.3]} radius={0.07} color={tint(colors.shirt)} roughness={0.85}/>
+      <mesh ref={leftArm} position={[-0.31, 1.2, 0]} castShadow geometry={armGeometry}><meshStandardMaterial color={tint(colors.shirt)} roughness={0.85}/></mesh>
+      <mesh ref={rightArm} position={[0.31, 1.2, 0]} castShadow geometry={armGeometry}><meshStandardMaterial color={tint(colors.shirt)} roughness={0.85}/></mesh>
+      <RBox position={[0, 1.5, 0]} size={[0.4, 0.4, 0.37]} radius={0.08} color={tint(colors.skin)} roughness={0.7}/>
+      <RBox position={[0, 1.72, -0.02]} size={[0.43, 0.13, 0.41]} radius={0.05} color={tint(colors.hair)} roughness={0.9}/>
+      <RBox position={[0, 1.58, -0.19]} size={[0.43, 0.3, 0.06]} radius={0.03} color={tint(colors.hair)} roughness={0.9}/>
+      <RBox position={[-0.09, 1.52, 0.186]} size={[0.06, 0.07, 0.01]} radius={0.004} color="#17201e" shadow={false}/>
+      <RBox position={[0.09, 1.52, 0.186]} size={[0.06, 0.07, 0.01]} radius={0.004} color="#17201e" shadow={false}/>
+      <RBox position={[0, 1.4, 0.186]} size={[0.12, 0.025, 0.01]} radius={0.004} color="#9a5a44" shadow={false}/>
+      {unknown && <mesh position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]}><ringGeometry args={[0.45, 0.55, 24]}/><meshBasicMaterial color="#e9c47b" transparent opacity={0.85}/></mesh>}
+      <object3D ref={anchor} position={[0, 2.05, 0]}/>
+    </group>
+  </group>
+}
+
+// Legs and arms pivot at the hip / shoulder: translate the geometry so its top sits at the origin.
+const legGeometry = new THREE.BoxGeometry(0.17, 0.62, 0.2).translate(0, -0.31, 0)
+const armGeometry = new THREE.BoxGeometry(0.12, 0.52, 0.14).translate(0, -0.26, 0)
+
+/**
+ * Screen-space labels: each frame, project every anchor into the canvas and move its DOM label
+ * there directly (no React re-render). Labels live outside the Canvas, so they unmount cleanly
+ * and use the page's own styles and focus handling.
+ */
+function LabelProjector({ anchors, labels }: { anchors: Registry<THREE.Object3D>; labels: Registry<HTMLElement> }) {
+  const point = useMemo(() => new THREE.Vector3(), [])
+  useFrame(({ camera, size }) => {
+    const projected: { element: HTMLElement; x: number; y: number; depth: number }[] = []
+    for (const [key, object] of anchors.current) {
+      const element = labels.current.get(key)
+      if (!element) continue
+      let shown = true
+      for (let node: THREE.Object3D | null = object; node; node = node.parent) if (!node.visible) { shown = false; break }
+      object.getWorldPosition(point).project(camera)
+      const visible = shown && point.z < 1 && Math.abs(point.x) <= 1.1 && Math.abs(point.y) <= 1.1
+      element.style.visibility = visible ? 'visible' : 'hidden'
+      if (visible) projected.push({ element, x: ((point.x + 1) / 2) * size.width, y: ((1 - point.y) / 2) * size.height, depth: point.z })
+    }
+    // Nearest labels keep their spot; a farther label that would overlap one already placed is
+    // lifted above it, so every agent stays readable and clickable.
+    projected.sort((a, b) => a.depth - b.depth)
+    const placed: { left: number; right: number; top: number; bottom: number }[] = []
+    for (const label of projected) {
+      const width = label.element.offsetWidth
+      const height = label.element.offsetHeight
+      const x = Math.min(Math.max(label.x, width / 2 + 4), size.width - width / 2 - 4)
+      let bottom = label.y
+      const left = x - width / 2
+      const right = x + width / 2
+      for (let guard = 0; guard < 6; guard += 1) {
+        const hit = placed.find((box) => left < box.right && right > box.left && bottom - height < box.bottom && bottom > box.top)
+        if (!hit) break
+        bottom = hit.top - 4
+      }
+      placed.push({ left, right, top: bottom - height, bottom })
+      label.element.style.transform = `translate(${x}px, ${Math.max(bottom, height + 4)}px) translate(-50%, -100%)`
+      label.element.style.zIndex = String(Math.round((1 - label.depth) * 10_000))
+    }
+  })
+  return null
+}
+
+export interface ViewHandle { reset: () => void }
+
+/** Orbit (drag), pan (right-drag, two fingers, arrow keys or pan mode) and zoom, kept in bounds. */
+const Controls = forwardRef<ViewHandle, { panMode: boolean; keyTarget: HTMLElement | null; layout: OfficeLayout; elevation: number }>(function Controls({ panMode, keyTarget, layout, elevation }, handle) {
+  const { camera, gl, size } = useThree()
+  const controls = useRef<OrbitControls | null>(null)
+  const { target: cameraTarget, offset: cameraOffset } = layout.camera
+  const target = useMemo(() => new THREE.Vector3(...cameraTarget), [cameraTarget])
+  const frame = useMemo(() => () => {
+    const aspect = size.width / Math.max(size.height, 1)
+    const offset = new THREE.Vector3(...cameraOffset)
+    // Narrow (portrait) views need to back off so the whole building fits across.
+    offset.setLength(offset.length() * Math.max(1, 1.2 / aspect))
+    const focus = target.clone().set(aspect < 1 ? cameraTarget[0] - 1.4 : cameraTarget[0], cameraTarget[1] + elevation, aspect < 1 ? 0.8 : cameraTarget[2])
+    const orbit = controls.current
+    // An undamped update applies and clears any momentum left from an earlier drag,
+    // so it has to happen before the camera is placed, not after.
+    if (orbit) { orbit.enableDamping = false; orbit.update() }
+    camera.position.copy(focus).add(offset)
+    camera.lookAt(focus)
+    if (!orbit) return
+    orbit.target.copy(focus)
+    orbit.update()
+    orbit.enableDamping = true
+  }, [camera, size.width, size.height, target, cameraOffset, cameraTarget, elevation])
+
+  useEffect(() => {
+    const orbit = new OrbitControls(camera, gl.domElement)
+    orbit.enableDamping = true
+    orbit.screenSpacePanning = false // pan across the floor, not up into the sky
+    orbit.minDistance = 5
+    orbit.maxDistance = 48
+    orbit.minPolarAngle = 0.2
+    orbit.maxPolarAngle = 1.32
+    orbit.keyPanSpeed = 25
+    controls.current = orbit
+    frame()
+    return () => { orbit.dispose(); controls.current = null }
+    // frame() only sets the initial view; re-running it on resize is handled below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [camera, gl])
+  useEffect(() => { frame() }, [frame])
+  useEffect(() => {
+    const orbit = controls.current
+    if (!orbit) return
+    orbit.mouseButtons.LEFT = panMode ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE
+    orbit.mouseButtons.RIGHT = panMode ? THREE.MOUSE.ROTATE : THREE.MOUSE.PAN
+    orbit.touches.ONE = panMode ? THREE.TOUCH.PAN : THREE.TOUCH.ROTATE
+  }, [panMode])
+  useEffect(() => {
+    const orbit = controls.current
+    if (!orbit || !keyTarget) return
+    orbit.listenToKeyEvents(keyTarget)
+    return () => orbit.stopListenToKeyEvents()
+  }, [keyTarget])
+  useImperativeHandle(handle, () => ({ reset: frame }), [frame])
+
+  useFrame(() => {
+    const orbit = controls.current
+    if (!orbit) return
+    orbit.update()
+    const [x, z] = clampTarget(orbit.target.x, orbit.target.z, layout.pan)
+    if (x !== orbit.target.x || z !== orbit.target.z) {
+      const shift = new THREE.Vector3(x - orbit.target.x, 0, z - orbit.target.z)
+      orbit.target.add(shift)
+      camera.position.add(shift)
+    }
+  })
+  return null
+})
+
+function register<T>(registry: Registry<T>, key: string) {
+  return (value: T | null) => { if (value) registry.current.set(key, value); else registry.current.delete(key) }
+}
+
+const SCENE_THEME_KEY = 'woork.kantorSceneTheme'
+
+function readDocumentTheme(): 'dark' | 'light' | null {
+  if (typeof document === 'undefined') return null
+  const value = document.documentElement.dataset.theme
+  return value === 'dark' || value === 'light' ? value : null
+}
+
+/**
+ * Tema scene: ikuti document.documentElement.dataset.theme bila ada (ala Ruang),
+ * bila tidak ada pakai tema terang + tombol ganti tema scene sendiri (disimpan per browser).
+ * WOORK tidak memakai atribut data-theme yang sama dengan Ruang, jadi jangan diasumsikan.
+ */
+function useSceneTheme(): ['dark' | 'light', () => void] {
+  const [docTheme, setDocTheme] = useState<'dark' | 'light' | null>(() => readDocumentTheme())
+  const [override, setOverride] = useState<'dark' | 'light' | null>(() => {
+    try {
+      const saved = localStorage.getItem(SCENE_THEME_KEY)
+      return saved === 'dark' || saved === 'light' ? saved : null
+    } catch { return null }
+  })
+  useEffect(() => {
+    const observer = new MutationObserver(() => setDocTheme(readDocumentTheme()))
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => observer.disconnect()
+  }, [])
+  const theme = override ?? docTheme ?? 'light'
+  const toggle = () => {
+    const next = theme === 'dark' ? 'light' : 'dark'
+    setOverride(next)
+    try { localStorage.setItem(SCENE_THEME_KEY, next) } catch { /* per-browser convenience only */ }
+  }
+  return [theme, toggle]
+}
+
+/** Day in the light theme; evening in the dark theme, when the lamps in the scene switch on. */
+function Lighting({ theme }: { theme: 'dark' | 'light' }) {
+  const day = theme === 'light'
+  return <>
+    <color attach="background" args={[day ? '#bfe0ef' : '#1a2335']}/>
+    <fog attach="fog" args={[day ? '#bfe0ef' : '#1a2335', 38, 75]}/>
+    <hemisphereLight args={[day ? '#fff4e0' : '#7f95bd', day ? '#5d7a4c' : '#1e2620', day ? 1.1 : 0.32]}/>
+    <directionalLight position={[10, 16, 9]} intensity={day ? 2.4 : 0.75} color={day ? '#fff1d6' : '#ff9a5a'} castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004} shadow-camera-left={-16} shadow-camera-right={16} shadow-camera-top={16} shadow-camera-bottom={-16} shadow-camera-far={60}/>
+    <ambientLight intensity={day ? 0.35 : 0.14} color={day ? '#ffffff' : '#8fa4d8'}/>
+  </>
+}
+
+const FLOORS: { floor: Floor; label: string; title: string }[] = [
+  { floor: 2, label: 'Kamar & Balkon', title: 'Lantai 2: bedroom, lesehan and balcony' },
+  { floor: 1, label: 'Kantor', title: 'Lantai 1: office, lounge, pantry and game room' },
+]
+const FLOOR_KEY = 'woork.kantorFloor'
+// Kunci localStorage LAMA untuk tidur (Wave 10 ke bawah) — dihapus saat
+// load (Wave 11), karena tidur kini state bersama di server. Browser yang
+// dulu menyimpan tidur = 1 (mis. DWI) langsung kembali sinkron tanpa
+// bersih-bersih manual.
+const LEGACY_SLEEP_KEY = 'woork.kantorSleep'
+
+function useFloor(): [Floor, (floor: Floor) => void] {
+  const [floor, setFloor] = useState<Floor>(() => {
+    try { return localStorage.getItem(FLOOR_KEY) === '2' ? 2 : 1 } catch { return 1 }
+  })
+  return [floor, (next: Floor) => {
+    setFloor(next)
+    try { localStorage.setItem(FLOOR_KEY, String(next)) } catch { /* per-browser convenience only */ }
+  }]
+}
+
+export interface Office3DProps {
+  stations: KantorStation[]
+  /** Dipanggil saat agent diklik di scene (dialog detail dibuat di Wave 2). */
+  onSelectAgent: (station: KantorStation) => void
+  /** Wave 11: status "Tidur" BERSAMA per kantor, dari snapshot server
+   *  (`snapshot.sleep`). Bukan lagi preferensi per-browser — semua user
+   *  kantor yang sama melihat nilai yang sama. */
+  sleep?: boolean
+  /** Wave 11: dipanggil saat tombol Tidur ditekan — parent memanggil
+   *  POST /api/kantor/sleep; state baru datang lewat snapshot / SSE. */
+  onToggleSleep?: (next: boolean) => void
+  /** Wave 8: bila true, canvas mengisi tinggi parent (h-full) alih-alih
+   *  rasio aspek 2.1/1 — dipakai halaman /kantor yang tingginya dinamis
+   *  (dvh). Logika 3D/movement/placement tidak berubah. */
+  fillHeight?: boolean
+}
+
+export default function Office3D({ stations = [], onSelectAgent, sleep = false, onToggleSleep, fillHeight = false }: Office3DProps) {
+  const anchors = useRef(new Map<string, THREE.Object3D>())
+  const labels = useRef(new Map<string, HTMLElement>())
+  const view = useRef<ViewHandle>(null)
+  const [panMode, setPanMode] = useState(false)
+  const [keyTarget, setKeyTarget] = useState<HTMLElement | null>(null)
+  const [theme, toggleTheme] = useSceneTheme()
+  const [floor, setFloor] = useFloor()
+  // Wave 11 — tidur kini state bersama server (prop `sleep` dari snapshot).
+  // Hapus kunci localStorage lama sekali saat mount: browser yang dulu
+  // menyimpan tidur = 1 (mis. DWI) langsung kembali sinkron (bangun,
+  // sama seperti Eka) tanpa harus membersihkan manual.
+  useEffect(() => {
+    try { localStorage.removeItem(LEGACY_SLEEP_KEY) } catch { /* abaikan */ }
+  }, [])
+  // One unlabeled desk per agent (hot desking); the building is sized for the crew.
+  const layout = useMemo(() => createLayout(stations.length), [stations.length])
+  // Idle agents wander between the lounge, the game room, the pantry, the street food and
+  // lantai 2 (decorative only), spread so no two share a spot. Bila kantor
+  // sedang tidur (prop `sleep` dari snapshot server), semua agent Idle ada
+  // di tempat tidur — placement-nya sudah dihitung server di
+  // GET /api/kantor/office (`station.idle`, stop 'tidur', pose 'lie').
+  const idleSeats = stations.filter((station) => station.state === 'Idle' && station.room === 'Lounge').map((station) => station.seat)
+  /**
+   * Placement idle sebuah station (Wave 10 — sinkronisasi realtime).
+   * Sumbernya `station.idle` dari snapshot server — dihitung SEKALI dari
+   * jam server (`idlePlan` di GET /api/kantor/office), jadi semua client
+   * menaruh agent Idle yang sama di spot yang sama. Dulu placement dihitung
+   * di sini dari `Date.now()` browser (`useClock(2000)`) — jam browser
+   * berbeda → posisi berbeda antar layar. Jam lokal kini TIDAK dipakai
+   * untuk placement; animasi ayunan anggota badan tetap memakai clock r3f
+   * (kosmetik, di Character/useFrame).
+   */
+  const idlePlacement = (station: KantorStation): { placement: Placement; label: string } | undefined => {
+    if (station.state !== 'Idle' || station.room !== 'Lounge') return undefined
+    const idle = station.idle
+    if (!idle) return undefined
+    return {
+      placement: { position: idle.position, facing: idle.facing, seated: idle.seated, label: idle.label, pose: idle.pose, height: idle.height },
+      label: idle.label,
+    }
+  }
+  // Agents at the meeting table take the next free place around it.
+  const meetingOrder = stations.filter((station) => station.roomPosition === 'meeting-area').map((station) => station.id)
+  // Bekerja/meninjau: langsung ke meja komputernya sendiri — tidak pernah
+  // mengembara. Begitu kembali Idle, idlePlacement() di atas mengambil alih lagi.
+  const placement = (station: KantorStation) => station.state === 'Working' || station.state === 'Reviewing'
+    ? placementFor(station, layout, Math.max(0, meetingOrder.indexOf(station.id)))
+    : idlePlacement(station)?.placement ?? placementFor(station, layout, Math.max(0, meetingOrder.indexOf(station.id)))
+  const floorCount = (value: Floor) => stations.filter((station) => floorOf(placement(station).position) === value).length
+  // Meja menyala bila ditempati: agent Working/Reviewing selalu duduk di mejanya
+  // sendiri (placementFor), walau `room` di snapshot masih 'Lounge'; station
+  // Workspace lain di luar meeting-area ikut terhitung; Offline tidak pernah.
+  const occupiedSeats = new Set(stations.filter((station) => station.state !== 'Offline' && (station.state === 'Working' || station.state === 'Reviewing' || (station.room === 'Workspace' && station.roomPosition !== 'meeting-area'))).map((station) => station.seat))
+  return <div className={fillHeight
+    ? "relative isolate h-full min-h-0 touch-none border-8 border-[#121a18] bg-[#15201c] shadow-[inset_0_0_0_2px_#4d6459] focus-visible:outline-2 focus-visible:outline-[#6fb6d6]"
+    : "relative isolate aspect-[2.1/1] min-h-[420px] touch-none border-8 border-[#121a18] bg-[#15201c] shadow-[inset_0_0_0_2px_#4d6459] focus-visible:outline-2 focus-visible:outline-[#6fb6d6] max-md:aspect-auto max-md:h-[400px] max-md:min-h-0"} ref={setKeyTarget} tabIndex={0} role="region" aria-label="3D office. Drag to rotate, right-drag or two fingers to pan, scroll to zoom, arrow keys pan when focused. Page Up and Page Down change floors." onKeyDown={(event) => {
+    if (event.key === 'PageUp' || event.key === 'PageDown') { event.preventDefault(); setFloor(event.key === 'PageUp' ? 2 : 1) }
+  }}>
+    <div className="absolute inset-0">
+      <Canvas shadows dpr={[1, 2]} camera={{ position: [-3, 13, 16], fov: 40, near: 0.5, far: 150 }} gl={{ antialias: true }}>
+        <Lighting theme={theme}/>
+        <Environment night={theme === 'dark'} layout={layout} floor={floor}/>
+        {floor === 1 && layout.desks.map((position, index) => <WorkDesk key={index} position={position} active={occupiedSeats.has(index + 1)} withChair/>)}
+        {stations.map((station) => <Character key={station.id} station={station} placement={placement(station)} layout={layout} floor={floor} onSelect={onSelectAgent} anchor={register(anchors, `agent-${station.id}`)}/>)}
+        <LabelProjector anchors={anchors} labels={labels}/>
+        <Controls key={layout.deskCount} ref={view} panMode={panMode} keyTarget={keyTarget} layout={layout} elevation={floor === 2 ? FLOOR_HEIGHT : 0}/>
+      </Canvas>
+    </div>
+    <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      {stations.map((station) => {
+        const badge = kantorStateBadge(station.state)
+        const busy = ['Working', 'Reviewing', 'Collaborating'].includes(station.state)
+        const idle = idlePlacement(station)
+        return <button key={station.id} ref={register(labels, `agent-${station.id}`)} type="button" className={`invisible absolute left-0 top-0 grid cursor-pointer justify-items-center gap-1 whitespace-nowrap border-0 bg-transparent p-0 text-[#eef9ef] will-change-transform focus-visible:outline-2 focus-visible:outline-[#f5bd6d] ${station.state === 'Offline' ? 'opacity-70' : ''}`} onClick={() => onSelectAgent(station)} aria-label={`${station.name}. ${badge.label}.${station.activity ? ` ${station.activity}.` : ''}${idle ? ` ${idle.label}.` : ''} Open station details.`}>
+          {busy && station.activity && <span className="w-max max-w-[150px] whitespace-normal rounded border-2 border-[#17201e] bg-[#fff7e8] px-1.5 py-0.5 text-center text-[9px] leading-snug text-[#1b2420]">{station.activity}</span>}
+          {idle && <span className={`w-max max-w-[150px] whitespace-normal rounded border-2 border-dashed bg-white/85 px-1.5 py-0.5 text-center text-[9px] italic leading-snug text-slate-600 ${idle.placement.pose === 'lie' ? 'italic' : ''}`}>{idle.placement.pose === 'lie' ? '💤 ' : ''}{idle.label}</span>}
+          <span className="flex items-center gap-1"><span className="font-mono text-[10px] tracking-wide [text-shadow:0_1px_1px_rgba(0,0,0,0.8)]">{station.name}</span><span className={`rounded px-1.5 py-0.5 font-mono text-[9px] ${BADGE_CLASSES[badge.tone]}`}>{badge.label}</span></span>
+        </button>
+      })}
+    </div>
+    <div className="absolute left-2.5 top-2.5 z-[2] flex flex-col gap-1.5" role="group" aria-label="Floors">
+      {FLOORS.map((item) => <button key={item.floor} type="button" className={`grid min-w-[150px] grid-cols-[26px_auto_auto] items-center gap-2 rounded-lg border px-2.5 py-1.5 pl-1.5 text-left text-xs text-[#f4efe6] ${floor === item.floor ? 'border-[#f4efe6] bg-[#d9534f]' : 'border-white/20 bg-black/70 hover:bg-black/90'}`} aria-pressed={floor === item.floor} onClick={() => setFloor(item.floor)} title={`${item.title} (Page ${item.floor === 2 ? 'Up' : 'Down'})`}>
+        <b className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/40 font-mono text-xs font-semibold">{item.floor}</b><span>{item.label}</span><small className="justify-self-end rounded-full bg-white/20 px-2 py-0.5 font-mono text-[11px] font-semibold text-white">{floorCount(item.floor)}</small>
+      </button>)}
+    </div>
+    <div className="absolute right-2.5 top-2.5 z-[2] flex gap-1.5 max-md:bottom-2.5 max-md:top-auto">
+      <button type="button" className={sleep ? 'rounded-md border border-[#f4efe6] bg-[#d9534f] px-2.5 py-1.5 text-xs text-[#f4efe6]' : 'rounded-md border border-white/20 bg-black/70 px-2.5 py-1.5 text-xs text-[#f4efe6] hover:bg-black/90'} aria-pressed={sleep} onClick={() => { onToggleSleep?.(!sleep); if (!sleep && idleSeats.length > 0) setFloor(2) }} title="Send every idle agent to bed on lantai 2">💤 Tidur</button>
+      <button type="button" className={panMode ? 'rounded-md border border-[#f4efe6] bg-[#d9534f] px-2.5 py-1.5 text-xs text-[#f4efe6]' : 'rounded-md border border-white/20 bg-black/70 px-2.5 py-1.5 text-xs text-[#f4efe6] hover:bg-black/90'} aria-pressed={panMode} onClick={() => setPanMode((value) => !value)} title="Drag moves the view instead of rotating it">✥ Geser</button>
+      <button type="button" className="rounded-md border border-white/20 bg-black/70 px-2.5 py-1.5 text-xs text-[#f4efe6] hover:bg-black/90" onClick={() => view.current?.reset()} title="Back to the starting view">↺ Reset view</button>
+      <button type="button" className="rounded-md border border-white/20 bg-black/70 px-2.5 py-1.5 text-xs text-[#f4efe6] hover:bg-black/90" onClick={toggleTheme} title={theme === 'dark' ? 'Ganti ke tema siang' : 'Ganti ke tema malam'}>{theme === 'dark' ? '☀️ Siang' : '🌙 Malam'}</button>
+    </div>
+  </div>
+}

@@ -148,7 +148,7 @@ export function ProfileClient() {
 
   if (loading) {
     return (
-      <div className="p-4 sm:p-6 lg:p-8 max-w-[860px] mx-auto space-y-4">
+      <div className="max-w-[860px] mx-auto space-y-4">
         <Skeleton className="h-10 w-64" />
         <Skeleton className="h-56 w-full" />
         <Skeleton className="h-56 w-full" />
@@ -157,7 +157,7 @@ export function ProfileClient() {
   }
   if (error || !data) {
     return (
-      <div className="p-4 sm:p-6 lg:p-8 max-w-[860px] mx-auto">
+      <div className="max-w-[860px] mx-auto">
         <div className="card">
           <ErrorState message={error} onRetry={load} />
         </div>
@@ -168,7 +168,7 @@ export function ProfileClient() {
   const user = data.user;
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-[860px] mx-auto space-y-5">
+    <div className="max-w-[860px] mx-auto space-y-5">
       <div>
         <h1 className="text-[22px] font-bold text-ink">Profil saya</h1>
         <p className="text-sm text-muted">Kelola informasi akun dan keamanan Anda.</p>

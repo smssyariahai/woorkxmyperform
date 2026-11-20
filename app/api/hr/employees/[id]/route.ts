@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requirePermission } from '@/lib/auth-helpers';
+import { getUserPermissions, requirePermission } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { audit } from '@/lib/audit';
 import { hrEmployeeSchema } from '@/lib/validation';
@@ -8,6 +8,34 @@ export const dynamic = 'force-dynamic';
 
 async function findOne(ctx: { organizationId: string }, id: string) {
   return prisma.hrEmployee.findFirst({ where: { id, organizationId: ctx.organizationId } });
+}
+
+/** GET /api/hr/employees/[id] — detail satu karyawan + seluruh kontrak + kandidat asal */
+export async function GET(_req: Request, { params }: { params: { id: string } }) {
+  try {
+    const ctx = await requirePermission('HR_VIEW');
+    const item = await prisma.hrEmployee.findFirst({
+      where: { id: params.id, organizationId: ctx.organizationId },
+      include: {
+        contracts: { orderBy: { startDate: 'desc' } },
+        candidate: {
+          select: {
+            id: true, name: true, email: true, phone: true, education: true,
+            source: true, stage: true, appliedAt: true,
+            vacancy: { select: { id: true, title: true } },
+          },
+        },
+        createdBy: { select: { id: true, name: true } },
+      },
+    });
+    if (!item) return apiErr('Karyawan tidak ditemukan.', 404);
+    const perms = await getUserPermissions(ctx);
+    const canManage = perms.has('*') || perms.has('HR_MANAGE');
+    return apiOk({ item, canManage });
+  } catch (e: any) {
+    if (e instanceof Response) return e;
+    return apiErr('Gagal memuat detail karyawan.', 500);
+  }
 }
 
 /** PUT /api/hr/employees/[id] */

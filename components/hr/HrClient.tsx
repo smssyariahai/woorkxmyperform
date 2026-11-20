@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { Card } from '@/components/ui/primitives';
 import { Modal } from '@/components/ui/modal';
 import { toast } from 'sonner';
@@ -143,7 +144,7 @@ export function HrClient() {
   ] as const;
 
   return (
-    <div className="pg">
+    <div className="w-full min-w-0 max-w-[1400px] mx-auto space-y-4 sm:space-y-6">
       <div className="flex flex-wrap items-center gap-3">
         <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand text-white">
           <Briefcase className="h-5 w-5" />
@@ -657,6 +658,7 @@ function EmployeeTab({ items, q, setQ, onAdd, onEdit, onReload }: any) {
                     <td>{latest ? <span className={latest.type === 'PKWTT' ? 'badge-green' : 'badge-blue'}>{latest.type}</span> : <span className="text-muted text-[12px]">Belum ada</span>}</td>
                     <td><span className={EMP_STATUS[e.status]?.cls || 'badge'}>{EMP_STATUS[e.status]?.label || e.status}</span></td>
                     <td className="text-right whitespace-nowrap">
+                      <Link href={`/hr/detail/${e.id}`} className="btn-ghost !py-1 !px-2 text-[12.5px] text-brand">Detail <ChevronRight className="h-3.5 w-3.5" /></Link>
                       <button onClick={() => onEdit(e)} className="btn-ghost !py-1 !px-2 text-[12.5px]"><Pencil className="h-3.5 w-3.5" /></button>
                       <button onClick={() => remove(e)} disabled={busy === e.id} className="btn-ghost !py-1 !px-2 text-red-600 text-[12.5px]"><Trash2 className="h-3.5 w-3.5" /></button>
                     </td>
@@ -672,7 +674,9 @@ function EmployeeTab({ items, q, setQ, onAdd, onEdit, onReload }: any) {
   );
 }
 
-function EmployeeModal({ open, initial, onClose, onSaved }: any) {
+// Diekspor agar dipakai ulang halaman /hr/detail (daftar + detail) —
+// form & validasi yang sama, tanpa duplikasi.
+export function EmployeeModal({ open, initial, onClose, onSaved }: any) {
   const isEdit = initial && initial.id;
   const [f, setF] = useState<any>({});
   const [saving, setSaving] = useState(false);

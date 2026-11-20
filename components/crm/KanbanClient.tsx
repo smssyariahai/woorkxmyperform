@@ -83,7 +83,7 @@ export function KanbanClient() {
   }
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-[1600px] mx-auto">
+    <div className="max-w-[1600px] mx-auto">
       <div className="flex items-center justify-between gap-3 mb-5">
         <div>
           <Link href="/crm" className="inline-flex items-center gap-1.5 text-[13px] text-muted hover:text-brand mb-1">
