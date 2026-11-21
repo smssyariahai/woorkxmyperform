@@ -24,6 +24,8 @@ import { useEffect, useRef } from 'react';
  * lain melihat tugas antre tanpa menunggu poll berikutnya.
  * `kantor.sleep_changed` didengarkan juga — dipublish
  * `app/api/kantor/sleep/route.ts` saat status Tidur bersama berubah.
+ * `kantor.theme_changed` didengarkan juga (Wave 15) — dipublish
+ * `app/api/kantor/theme/route.ts` saat tema scene bersama berubah.
  */
 export const KANTOR_REALTIME_EVENTS = [
   'agent.status_changed',
@@ -39,6 +41,7 @@ export const KANTOR_REALTIME_EVENTS = [
   'task.cancelled',
   'notification.created',
   'kantor.sleep_changed',
+  'kantor.theme_changed',
 ] as const;
 
 export type KantorRealtimeEvent = (typeof KANTOR_REALTIME_EVENTS)[number];

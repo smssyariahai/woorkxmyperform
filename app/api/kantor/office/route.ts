@@ -17,6 +17,7 @@ import {
 } from '@/lib/kantor/types';
 import { createLayout, IDLE_STOP_MS, idlePlan } from '@/components/kantor/scene/office3d-layout';
 import { isSleeping } from '@/lib/kantor/sleep';
+import { getSceneTheme } from '@/lib/kantor/theme';
 
 export const dynamic = 'force-dynamic';
 
@@ -173,6 +174,7 @@ export async function GET() {
       },
       fetchedAt: new Date(nowMs).toISOString(),
       sleep: sleeping,
+      theme: getSceneTheme(ctx.organizationId),
     };
     return apiOk(snapshot);
   } catch (e: unknown) {

@@ -8,12 +8,18 @@ import { KANTOR_KANBAN_MAP, type KantorTaskStatus } from '@/lib/kantor/types';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const ctx = await requireAuth();
     await requireModule(ctx, 'kantor');
+    // Wave 16 — riwayat chat per-user: `mine=1` hanya mengembalikan tugas
+    // yang dibuat user yang sedang login (createdById dari sesi). Tanpa
+    // `mine`, perilaku lama dipertahankan (daftar org, mis. kanban KantorClient).
+    const { searchParams } = new URL(req.url);
+    const where: any = { organizationId: ctx.organizationId };
+    if (searchParams.get('mine') === '1') where.createdById = ctx.userId;
     const tasks = await prisma.agentTask.findMany({
-      where: { organizationId: ctx.organizationId },
+      where,
       orderBy: { createdAt: 'desc' },
       take: 50,
       include: { agent: { select: { id: true, name: true } } },
@@ -25,6 +31,7 @@ export async function GET() {
         description: t.description,
         agentId: t.agentId,
         agentName: t.agent?.name ?? null,
+        createdById: t.createdById,
         priority: t.priority,
         status: t.status,
         kanbanStatus: KANTOR_KANBAN_MAP[t.status as KantorTaskStatus] ?? 'todo',

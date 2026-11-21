@@ -408,9 +408,15 @@ function agentInitial(name: string): string {
   return ch || '?';
 }
 
-/** Apakah teks perintah sudah menyebut salah satu nama agent. */
-function mentionsAgent(text: string): boolean {
-  return AGENT_ORDER.some((n) => new RegExp(`\\b${n}\\b`, 'i').test(text));
+/** Apakah teks perintah sudah menyebut salah satu nama agent kantor ini.
+ *  Daftar nama dikirim pemanggil (dari /api/kantor/agents) — JANGAN pakai
+ *  daftar hardcode 5 bawaan: agent baru (mis. Fathan) harus ikut dikenali,
+ *  kalau tidak client mengawali perintah dengan nama agent terpilih
+ *  sehingga terkirim "Fathan, Fathan, bangun". */
+function mentionsAgent(text: string, names: string[]): boolean {
+  return names.some((n) =>
+    new RegExp(`\\b${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i').test(text),
+  );
 }
 
 export function CommandPanel({
@@ -468,10 +474,12 @@ export function CommandPanel({
       try {
         // Tugas: endpoint kanban (read-only, auth saja); bila gagal, pakai
         // endpoint lama /api/agent-tasks (butuh INBOX_VIEW).
-        const taskRes = await fetchJson<{ tasks: CommandTask[] }>('/api/kantor/tasks');
+        // Wave 16 — riwayat chat per-user: `mine=1` hanya memuat tugas yang
+        // dibuat user yang sedang login, jadi history tidak tercampur antaruser.
+        const taskRes = await fetchJson<{ tasks: CommandTask[] }>('/api/kantor/tasks?mine=1');
         loaded = taskRes.tasks.slice(0, 20);
       } catch {
-        const items = await fetchJson<any[]>('/api/agent-tasks');
+        const items = await fetchJson<any[]>('/api/agent-tasks?mine=1');
         fallbackDetails = {};
         loaded = items.slice(0, 20).map((t: any) => {
           const detail = detailFromAgentTask(t);
@@ -503,7 +511,7 @@ export function CommandPanel({
         );
         if (needCommand.length > 0 || needResult.length > 0) {
           try {
-            const items = await fetchJson<any[]>('/api/agent-tasks');
+            const items = await fetchJson<any[]>('/api/agent-tasks?mine=1');
             const next = { ...detailsRef.current };
             items.forEach((item: any) => {
               const detail = detailFromAgentTask(item);
@@ -533,8 +541,10 @@ export function CommandPanel({
     fetchJson<{ agents: WorkspaceAgent[] }>('/api/kantor/agents')
       .then((d) => {
         const seen = new Map<string, WorkspaceAgent>();
+        // Wave 13 — agent nonaktif tidak tampil di pemilih (scene 3D dan
+        // scheduler sudah menyaring isEnabled di server).
         (d.agents ?? []).forEach((a) => {
-          if (a?.name && !seen.has(a.name)) seen.set(a.name, a);
+          if (a?.name && a.isEnabled !== false && !seen.has(a.name)) seen.set(a.name, a);
         });
         setAgents([...seen.values()]);
       })
@@ -624,7 +634,7 @@ export function CommandPanel({
     if (!raw || sending) return;
     // Bila perintah belum menyebut nama agent, awali dengan agent terpilih
     // supaya parseCommand mengarah ke agent itu.
-    const text = mentionsAgent(raw) || !selectedAgent ? raw : `${selectedAgent.name}, ${raw}`;
+    const text = mentionsAgent(raw, agents.map((a) => a.name)) || !selectedAgent ? raw : `${selectedAgent.name}, ${raw}`;
     setSending(true);
     try {
       const data = await fetchJson<{ reply?: string; taskId?: string; agent?: { name?: string } | null }>(
@@ -836,8 +846,11 @@ export function CommandPanel({
 
   /** Hero tampil saat thread kosong atau setelah "Percakapan baru". */
   const showHero = !loadingTasks && (clearedView || thread.length === 0);
+  // Agent baru belum punya daftar saran sendiri — pakai contoh Aria
+  // dengan namanya diganti, supaya chip tidak menyebut agent lain.
   const suggestions = selectedAgent
-    ? (SUGGESTIONS_BY_AGENT[selectedAgent.name] ?? SUGGESTIONS_BY_AGENT.Aria)
+    ? (SUGGESTIONS_BY_AGENT[selectedAgent.name] ??
+        SUGGESTIONS_BY_AGENT.Aria.map((s) => s.replace(/^Aria, /, `${selectedAgent.name}, `)))
     : SUGGESTIONS_BY_AGENT.Aria;
   const selectedColor = selectedAgent?.avatarColor ?? '#007AFD';
 
@@ -976,7 +989,7 @@ export function CommandPanel({
             className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:border-brand hover:text-ink"
           >
             <MessageSquarePlus className="h-4 w-4" />
-            Percakapan baru
+            <span className="hidden sm:inline">Percakapan baru</span>
           </button>
           {onHide && (
             <button
@@ -1202,8 +1215,10 @@ export function CommandPanel({
           )}
       </div>
 
-      {/* Footer: kolom ketik + status — menempel di bawah panel */}
-      <div className="relative shrink-0 border-t px-3.5 pb-3 pt-2.5">
+      {/* Footer: kolom ketik + status — menempel di bawah panel.
+          pb memakai safe-area bawah (home indicator iOS) supaya kolom
+          ketik tidak duduk di bawah garis home. */}
+      <div className="relative shrink-0 border-t px-3.5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2.5">
           {/* Pemilih @ + dropdown Tools (muncul di atas kolom ketik) */}
             {mention && mentionList.length > 0 && (
               <div className="absolute bottom-full left-0 z-20 mb-2 w-72 overflow-hidden rounded-xl border bg-white dark:bg-slate-900 shadow-lg">
@@ -1296,12 +1311,15 @@ export function CommandPanel({
                   rows={1}
                   placeholder="Ketik pesan, @ untuk memilih agent…"
                   aria-label="Perintah untuk agent"
-                  className="min-w-0 flex-1 resize-none rounded-xl border bg-white dark:bg-slate-900 px-3.5 py-2.5 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+                  // text-base (16px) di HP: iOS Safari memperbesar tampilan
+                  // otomatis saat fokus ke input <16px — kolom ketik jadi
+                  // 16px di HP supaya tidak zoom, tetap text-sm di desktop.
+                  className="min-w-0 flex-1 resize-none rounded-xl border bg-white dark:bg-slate-900 px-3.5 py-2.5 text-base outline-none focus:border-brand focus:ring-1 focus:ring-brand sm:text-sm"
                 />
                 <button
                   type="submit"
                   disabled={!command.trim() || sending}
-                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-brand px-4 py-2.5 text-sm font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg bg-brand px-4 py-2.5 text-sm font-medium text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   Kirim

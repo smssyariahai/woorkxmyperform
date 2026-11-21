@@ -7,6 +7,7 @@ import { parseReportFormat } from '@/lib/agents/format';
 import { getNineRouterConfig } from '@/lib/bot/ninerouter';
 import { ensureAgents, enqueueTask, cancelTask, retryTask } from '@/lib/agents/scheduler';
 import { publishAgentEvent } from '@/lib/agents/events';
+import { setSleeping } from '@/lib/kantor/sleep';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,9 +19,15 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status');
     const agentId = searchParams.get('agentId');
+    // Wave 16 — riwayat chat per-user: `mine=1` hanya mengembalikan tugas
+    // yang dibuat user yang sedang login (createdById = ctx.userId, diambil
+    // dari sesi, bukan dari parameter — tidak bisa dipalsukan lewat URL).
+    // Tanpa `mine`, perilaku lama dipertahankan (daftar org, mis. kanban).
+    const mine = searchParams.get('mine') === '1';
     const where: any = { organizationId: ctx.organizationId };
     if (status) where.status = status;
     if (agentId) where.agentId = agentId;
+    if (mine) where.createdById = ctx.userId;
     const items = await prisma.agentTask.findMany({
       where,
       include: {
@@ -39,6 +46,7 @@ export async function GET(req: Request) {
       progress: t.progress,
       errorMessage: t.errorMessage,
       resultPayload: t.resultPayload,
+      createdById: t.createdById,
       createdAt: t.createdAt,
       updatedAt: t.updatedAt,
       agent: t.agent,
@@ -64,13 +72,41 @@ export async function POST(req: Request) {
     if (!command) return apiErr('Perintah tidak boleh kosong.', 422);
 
     await ensureAgents(ctx.organizationId);
-    const intent = parseCommand(command);
+    // Wave 13 fix — kirim nama SEMUA agent kantor (termasuk yang baru
+    // dibuat lewat /kantor/agents) supaya parseCommand mengenalinya;
+    // sebelumnya hanya 5 nama bawaan yang dikenali dan perintah ke agent
+    // baru selalu jatuh ke Aria.
+    const agentRows = await prisma.agent.findMany({
+      where: { organizationId: ctx.organizationId },
+      select: { name: true },
+    });
+    const intent = parseCommand(command, agentRows.map((r) => r.name));
 
     // --- perintah kontrol ---
+    if (intent.control === 'wake' || intent.control === 'sleep') {
+      const sleeping = intent.control === 'sleep';
+      setSleeping(ctx.organizationId, sleeping);
+      await publishAgentEvent(ctx.organizationId, 'kantor.sleep_changed', { sleeping });
+      await audit({
+        organizationId: ctx.organizationId, userId: ctx.userId,
+        action: sleeping ? 'KANTOR_SLEEP_ON' : 'KANTOR_SLEEP_OFF', module: 'KANTOR',
+        description: `${ctx.name} ${sleeping ? 'menyalakan mode Tidur' : 'membangunkan agent'} lewat perintah "${command}"`,
+        ipAddress: getClientIp(req),
+      });
+      return apiOk({
+        reply: sleeping
+          ? 'Mode Tidur dinyalakan — semua agent beristirahat.'
+          : intent.namedAgent
+            ? `${intent.namedAgent} dibangunkan — semua agent ikut bangun (mode Tidur berlaku untuk seluruh kantor).`
+            : 'Semua agent dibangunkan — mode Tidur dimatikan untuk seluruh kantor.',
+      });
+    }
     if (intent.kind === 'control') {
       if (intent.control === 'cancel') {
+        // Wave 16 — hanya tugas MILIK user yang bisa dibatalkan lewat
+        // perintah "batalkan" (bukan tugas aktif user lain di kantor).
         const active = await prisma.agentTask.findFirst({
-          where: { organizationId: ctx.organizationId, status: { in: ['QUEUED', 'RUNNING', 'WAITING_APPROVAL'] } },
+          where: { organizationId: ctx.organizationId, createdById: ctx.userId, status: { in: ['QUEUED', 'RUNNING', 'WAITING_APPROVAL'] } },
           orderBy: { createdAt: 'desc' },
         });
         if (!active) return apiOk({ reply: 'Tidak ada tugas yang sedang berjalan.' });
@@ -79,12 +115,14 @@ export async function POST(req: Request) {
         return apiOk({ reply: `Tugas "${active.title}" dihentikan.` });
       }
       if (intent.control === 'retry') {
+        // Wave 16 — hanya tugas MILIK user yang bisa diulang lewat perintah
+        // "ulangi" (bukan tugas gagal user lain di kantor).
         const pending = await prisma.agentTask.findFirst({
-          where: { organizationId: ctx.organizationId, status: { in: ['FAILED', 'CANCELLED'] } },
+          where: { organizationId: ctx.organizationId, createdById: ctx.userId, status: { in: ['FAILED', 'CANCELLED'] } },
           orderBy: { createdAt: 'desc' },
         });
         if (!pending) return apiOk({ reply: 'Tidak ada tugas tertunda untuk dilanjutkan.' });
-        await retryTask(ctx.organizationId, pending.id);
+        await retryTask(ctx.organizationId, pending.id, ctx.userId);
         return apiOk({ reply: `Tugas "${pending.title}" dilanjutkan kembali.`, taskId: pending.id });
       }
       if (intent.control === 'approve') {

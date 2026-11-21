@@ -469,6 +469,9 @@ async function requestApproval(org: string, task: any, agent: any, type: string,
 export async function cancelTask(organizationId: string, taskId: string, userId: string) {
   const task = await prisma.agentTask.findFirst({ where: { id: taskId, organizationId }, include: { agent: true } });
   if (!task) throw new Error('Tugas tidak ditemukan.');
+  // Wave 16 — riwayat per-user: hanya pemilik tugas yang bisa membatalkannya
+  // (tugas lama tanpa createdById tetap bisa dibatalkan anggota kantor).
+  if (task.createdById && task.createdById !== userId) throw new Error('Tugas tidak ditemukan.');
   if (!['QUEUED', 'RUNNING', 'WAITING_APPROVAL'].includes(task.status)) throw new Error('Tugas sudah final.');
   await setTask(organizationId, taskId, { status: 'CANCELLED', completedAt: new Date() }, 'cancelled', 'Tugas dibatalkan pengguna.');
   if (task.agentId) {
@@ -480,9 +483,12 @@ export async function cancelTask(organizationId: string, taskId: string, userId:
 }
 
 /** Ulangi tugas FAILED/CANCELLED. */
-export async function retryTask(organizationId: string, taskId: string) {
+export async function retryTask(organizationId: string, taskId: string, userId?: string) {
   const task = await prisma.agentTask.findFirst({ where: { id: taskId, organizationId } });
   if (!task) throw new Error('Tugas tidak ditemukan.');
+  // Wave 16 — riwayat per-user: hanya pemilik tugas yang bisa mengulangnya
+  // (bila userId diberikan; tugas lama tanpa createdById tetap bisa).
+  if (userId && task.createdById && task.createdById !== userId) throw new Error('Tugas tidak ditemukan.');
   if (!['FAILED', 'CANCELLED'].includes(task.status)) throw new Error('Hanya tugas gagal/dibatalkan yang bisa diulang.');
   // P0-3 — bersihkan resultPayload supaya tugas yang diulang menjalankan
   // tool segar dari awal (tanpa penanda toolExecuted dari percobaan lama).
@@ -580,21 +586,26 @@ export async function sweepOrphanedTasks(): Promise<number> {
   return orphaned.length;
 }
 
-/** Pastikan 5 agent bawaan ada untuk organisasi ini (idempotent). */
+/**
+ * Pastikan 5 agent bawaan ada untuk organisasi ini (idempotent).
+ *
+ * Wave 13 — CREATE-ONLY: agent yang sudah ada di DB TIDAK di-update.
+ * Konfigurasi lewat UI Kelola Agent (/kantor/agents) adalah sumber
+ * kebenaran; bila seed menimpa tiap perintah, semua edit pengguna
+ * (termasuk nonaktifkan) akan hilang. Perubahan registry yang memang
+ * harus dipaksakan ke DB dijalankan manual lewat
+ * `npx tsx scripts/seed-agent-config.ts` (force-sync).
+ */
 export async function ensureAgents(organizationId: string) {
   const { AGENT_DEFINITIONS } = await import('./registry');
   for (const def of AGENT_DEFINITIONS) {
-    await prisma.agent.upsert({
+    const existing = await prisma.agent.findUnique({
       where: { organizationId_name: { organizationId, name: def.name } },
-      update: {
-        role: def.role,
-        description: def.description,
-        avatarColor: def.avatarColor,
-        skills: JSON.stringify(def.skills),
-        systemInstructions: def.systemInstructions,
-        tools: JSON.stringify(def.tools),
-      },
-      create: {
+      select: { id: true },
+    });
+    if (existing) continue;
+    await prisma.agent.create({
+      data: {
         organizationId,
         name: def.name,
         role: def.role,

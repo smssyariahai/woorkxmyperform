@@ -13,5 +13,6 @@ export default async function KantorPage() {
     const sub = await getSubscription(ctx.organizationId);
     if (!isModuleSubscribed(sub, 'kantor')) redirect('/dashboard');
   }
-  return <KantorPageClient />;
+  const canManage = ctx.isSuperAdmin || ctx.role === 'OWNER' || ctx.role === 'ADMIN';
+  return <KantorPageClient canManage={canManage} />;
 }

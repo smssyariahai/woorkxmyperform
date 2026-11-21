@@ -7,7 +7,9 @@ import { formatBulanTahun, parseMonthFromText } from './month';
  * Ketika penyedia AI terhubung nanti, ganti fungsi ini dengan pemanggilan model.
  */
 export interface ParsedIntent {
-  agentName: string;      // Aria | Bima | Citra | Dian | Eko
+  agentName: string;      // nama agent tujuan — dari daftar agent kantor
+  /** Nama agent yang benar-benar disebut di perintah (null bila tidak ada). */
+  namedAgent?: string | null;
   title: string;
   description: string;
   toolKey: string | null; // tool utama yang akan dijalankan
@@ -16,26 +18,31 @@ export interface ParsedIntent {
   requiresApproval: boolean;
   reply: string;          // konfirmasi cepat ke pengguna (acknowledgment)
   kind: 'task' | 'query' | 'control';
-  control?: 'cancel' | 'retry' | 'approve' | 'list';
+  control?: 'cancel' | 'retry' | 'approve' | 'list' | 'wake' | 'sleep';
 }
 
-const AGENTS = ['aria', 'bima', 'citra', 'dian', 'eko'] as const;
+/** Nama agent bawaan — fallback bila pemanggil tidak mengirim daftar. */
+const DEFAULT_AGENT_NAMES = ['Aria', 'Bima', 'Citra', 'Dian', 'Eko'];
 
-function detectAgent(text: string): string | null {
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function detectAgent(text: string, names: string[]): string | null {
   const t = text.toLowerCase();
-  for (const a of AGENTS) {
-    if (new RegExp(`\\b${a}\\b`).test(t)) return a[0].toUpperCase() + a.slice(1);
+  for (const name of names) {
+    if (new RegExp(`\\b${escapeRegExp(name.toLowerCase())}\\b`).test(t)) return name;
   }
   return null;
 }
 
 /** Semua nama agent yang disebut di perintah, sesuai urutan kemunculan. */
-function detectAllAgents(text: string): string[] {
+function detectAllAgents(text: string, names: string[]): string[] {
   const t = text.toLowerCase();
   const found: { name: string; idx: number }[] = [];
-  for (const a of AGENTS) {
-    const m = new RegExp(`\\b${a}\\b`).exec(t);
-    if (m) found.push({ name: a[0].toUpperCase() + a.slice(1), idx: m.index });
+  for (const name of names) {
+    const m = new RegExp(`\\b${escapeRegExp(name.toLowerCase())}\\b`).exec(t);
+    if (m) found.push({ name, idx: m.index });
   }
   return found.sort((x, y) => x.idx - y.idx).map((f) => f.name);
 }
@@ -48,12 +55,46 @@ function detectPriority(text: string): ParsedIntent['priority'] {
   return 'NORMAL';
 }
 
-export function parseCommand(raw: string): ParsedIntent {
+/**
+ * Parse perintah. `agentNames` = nama semua agent kantor ini (dari DB) —
+ * WAJIB dikirim pemanggil API supaya agent baru (mis. Fathan) ikut dikenali;
+ * bila tidak dikirim, hanya 5 nama bawaan yang dikenali dan perintah ke
+ * agent baru jatuh ke Aria (bug yang dilaporkan user 2026-11-20).
+ */
+export function parseCommand(raw: string, agentNames: string[] = DEFAULT_AGENT_NAMES): ParsedIntent {
   const text = raw.trim();
   const t = text.toLowerCase();
-  const named = detectAgent(t);
+  const names = agentNames.length > 0 ? agentNames : DEFAULT_AGENT_NAMES;
+  const named = detectAgent(t, names);
   const priority = detectPriority(t);
   const sensitive = SENSITIVE_PATTERN.test(text);
+
+  // --- perintah kontrol: bangun / tidur ---
+  // Mode Tidur berlaku untuk SELURUH kantor (state bersama per org,
+  // lib/kantor/sleep.ts), jadi "Fathan, bangun" membangunkan semua agent
+  // — balasan di route menjelaskannya dengan jujur.
+  // Hanya bila kata bangun/tidur adalah kata kerja utama perintah (sisa
+  // teks setelahnya ≤ 3 kata, mis. "bangun dong"); bila ada tugas lain
+  // setelahnya ("bangun dan buatkan laporan..."), jatuh ke parsing tugas
+  // biasa dengan agent yang tetap terdeteksi.
+  const nameAlt = names
+    .map((n) => escapeRegExp(n.toLowerCase()))
+    .sort((a, b) => b.length - a.length)
+    .join('|');
+  const wakeSleep = new RegExp(`^(?:(?:${nameAlt}),?\\s+)?(bangun|bangunkan|bangunlah|tidur|tidurlah)\\b`).exec(t);
+  if (wakeSleep) {
+    const rest = t.slice(wakeSleep[0].length).trim();
+    if (!rest || rest.split(/\s+/).length <= 3) {
+      const sleep = wakeSleep[1].startsWith('tidur');
+      return {
+        agentName: named ?? 'Aria', namedAgent: named,
+        title: sleep ? 'Tidurkan agent' : 'Bangunkan agent', description: text,
+        toolKey: null, toolArgs: {}, priority, requiresApproval: false,
+        reply: sleep ? 'Siap, mode Tidur dinyalakan.' : 'Siap, membangunkan agent.',
+        kind: 'control', control: sleep ? 'sleep' : 'wake',
+      };
+    }
+  }
 
   // --- perintah kontrol ---
   if (/\b(hentikan|batalkan|cancel)\b/.test(t) && /\btugas\b/.test(t)) {
@@ -92,9 +133,9 @@ export function parseCommand(raw: string): ParsedIntent {
   // --- koordinasi antar agent: "Bima koordinasi dengan Aria" ---
   // Agent pertama berjalan ke meja agent kedua (delegasi sebagai mekanisme).
   if (/\b(koordinasi|berkoordinasi|hubungi|temui|samperin|ajak bicara|diskusi dengan|bicara dengan|ke meja)\b/.test(t)) {
-    const names = detectAllAgents(t);
-    if (names.length >= 2) {
-      const [from, to] = names;
+    const mentioned = detectAllAgents(t, names);
+    if (mentioned.length >= 2) {
+      const [from, to] = mentioned;
       return {
         agentName: from, title: `Koordinasi: ${from} → ${to}`, description: text,
         toolKey: 'delegasi_tugas',

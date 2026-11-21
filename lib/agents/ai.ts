@@ -236,10 +236,18 @@ export async function composeReportWithAI(
     }
     const monthLine = context?.monthLabel ? `\nPeriode laporan: ${context.monthLabel}.` : '';
     const toolLine = toolKey ? `Tool yang dipakai: ${toolKey}.` : 'Tidak ada tool yang dipakai.';
+    // Wave 12 — konfigurasi agent (mandat, cara kerja, standar laporan,
+    // aturan keras) WAJIB diikuti saat menyusun laporan. Sebelum Wave 12
+    // prompt laporan ini generik untuk semua agent dan mengabaikan
+    // systemInstructions, sehingga laporan tiap agent tidak mencerminkan
+    // perannya. Bila instruksi kosong, struktur generik di bawah yang dipakai.
+    const instructions = agent.systemInstructions?.trim()
+      ? `\n\nKonfigurasi agent ini — WAJIB diikuti (mandat, cara kerja, standar laporan, aturan keras):\n${agent.systemInstructions.trim()}`
+      : '';
     const systemPrompt =
       `Kamu adalah ${agent.name}, seorang ${agent.role} di kantor virtual WOORK. ` +
       `Tulis laporan DETAIL dalam Bahasa Indonesia dengan format Markdown, berdasarkan HASIL TOOL yang diberikan di bawah.${monthLine}\n\n` +
-      `Struktur laporan:\n` +
+      `Struktur laporan (bila konfigurasi agent di bawah tidak menentukan struktur lain):\n` +
       `1. Ringkasan eksekutif\n` +
       `2. Temuan / angka kunci\n` +
       `3. Tabel bila relevan\n` +
@@ -249,7 +257,8 @@ export async function composeReportWithAI(
       `- Angka HANYA dari data yang diberikan. JANGAN mengarang angka, nama, tanggal, atau fakta apa pun.\n` +
       `- Bila data kosong atau tidak ada, katakan terus terang bahwa tidak ada data tercatat — jangan isi dengan angka karangan.\n` +
       `- Jangan klaim data yang tidak ada di hasil tool (misalnya jangan menyajikan rekap tagihan sebagai laporan kas/pengeluaran bila datanya hanya tagihan).\n` +
-      `- Gunakan Bahasa Indonesia yang rapi dan profesional.`;
+      `- Setiap temuan disertai bukti/dampaknya, setiap rekomendasi disertai pemilik dan langkah berikutnya yang konkret.\n` +
+      `- Gunakan Bahasa Indonesia yang rapi dan profesional.${instructions}`;
 
     const userMessage =
       `Perintah pengguna: ${command?.trim() || '(tidak ada)'}\n` +

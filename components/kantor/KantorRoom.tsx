@@ -21,8 +21,14 @@
  * Wave 11 — status "Tidur" juga sinkron: nilai bersama per kantor dari
  * snapshot (`snapshot.sleep`); tombol Tidur di scene memanggil
  * POST /api/kantor/sleep (toggleSleep di bawah) dan event SSE
- * `kantor.sleep_changed` membuat semua layar reload segera. Lantai dan
- * tema scene TETAP preferensi per-browser (bukan keadaan kantor).
+ * `kantor.sleep_changed` membuat semua layar reload segera.
+ *
+ * Wave 15 — tema scene (siang/malam) juga sinkron, pola yang sama dengan
+ * Tidur: nilai bersama per kantor dari snapshot (`snapshot.theme`);
+ * tombol Siang/Malam di scene memanggil POST /api/kantor/theme
+ * (toggleTheme di bawah) dan event SSE `kantor.theme_changed` membuat
+ * semua layar reload segera. Lantai TETAP preferensi per-browser
+ * (bukan keadaan kantor).
  *
  * Data: lib/kantor/types.ts (KantorOfficeSnapshot). Scene: ./Office3D.tsx.
  * Dialog detail agent dibuat di Wave 2 — untuk sekarang klik agent hanya membuka panel kecil.
@@ -168,6 +174,27 @@ export default function KantorRoom({
     void load()
   }, [snapshot?.sleep, load])
 
+  // Wave 15 — tombol Siang/Malam mengubah tema BERSAMA per kantor di
+  // server (POST /api/kantor/theme), pola yang sama dengan toggleSleep.
+  // Kirim nilai eksplisit (kebalikan dari state snapshot) supaya klik
+  // ganda tidak membalik dua kali. Nilai baru datang lewat load() di sini
+  // + event SSE `kantor.theme_changed` ke semua client kantor ini
+  // (termasuk pengirim sendiri).
+  const toggleTheme = useCallback(async () => {
+    const next = (snapshot?.theme ?? 'light') === 'dark' ? 'light' : 'dark'
+    try {
+      const res = await fetch('/api/kantor/theme', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ theme: next }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    } catch {
+      // Gagal -> biarkan state lama; tombol tetap menampilkan state snapshot.
+    }
+    void load()
+  }, [snapshot?.theme, load])
+
   useEffect(() => {
     mounted.current = true
     setWebgl(webglAvailable())
@@ -234,21 +261,22 @@ export default function KantorRoom({
 
   return (
     <div className={fillHeight ? 'flex h-full min-h-0 flex-col space-y-2' : 'space-y-3'}>
-      {/* HUD ringkasan */}
+      {/* HUD ringkasan — di HP satu baris geser horizontal (tanpa bungkus
+          jadi 2-3 baris yang memakan tinggi scene); di desktop membungkus. */}
       {snapshot && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:flex-wrap sm:overflow-visible sm:pb-0">
           {chips.map((chip) => (
-            <span key={chip.label} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
+            <span key={chip.label} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
               <span className="uppercase tracking-wide text-slate-400 dark:text-slate-500">{chip.label}</span>
               <b className="font-semibold">{chip.value}</b>
             </span>
           ))}
           {stale && (
-            <span className="inline-flex items-center rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-700 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-200">
+            <span className="inline-flex shrink-0 items-center rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-700 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-200">
               STALE — data lama, gagal memuat baru
             </span>
           )}
-          <span className="ml-auto text-xs text-slate-400 dark:text-slate-500">
+          <span className="ml-auto shrink-0 text-xs text-slate-400 dark:text-slate-500">
             Diperbarui {formatTime(snapshot.fetchedAt)}
           </span>
         </div>
@@ -277,10 +305,11 @@ export default function KantorRoom({
         ) : snapshot ? (
           <>
             <div className={fillHeight ? 'min-h-0 flex-1' : undefined}>
-              <Office3D stations={snapshot.stations} onSelectAgent={setSelected} fillHeight={fillHeight} sleep={snapshot.sleep ?? false} onToggleSleep={toggleSleep} />
+              <Office3D stations={snapshot.stations} onSelectAgent={setSelected} fillHeight={fillHeight} sleep={snapshot.sleep ?? false} onToggleSleep={toggleSleep} theme={snapshot.theme ?? 'light'} onToggleTheme={toggleTheme} />
             </div>
             <p className="mt-2 shrink-0 text-xs text-slate-400 dark:text-slate-500">
-              Seret untuk memutar · klik kanan / dua jari untuk menggeser · scroll untuk zoom · klik agent untuk detail · Page Up / Page Down ganti lantai
+              <span className="sm:hidden">Satu jari untuk memutar · dua jari untuk geser &amp; zoom · ketuk agent untuk detail</span>
+              <span className="hidden sm:inline">Seret untuk memutar · klik kanan / dua jari untuk menggeser · scroll untuk zoom · klik agent untuk detail · Page Up / Page Down ganti lantai</span>
             </p>
           </>
         ) : (

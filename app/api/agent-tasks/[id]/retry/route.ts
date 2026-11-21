@@ -10,7 +10,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   try {
     const ctx = await requirePermission('INBOX_REPLY');
     await requireModule(ctx, 'kantor');
-    await retryTask(ctx.organizationId, params.id);
+    await retryTask(ctx.organizationId, params.id, ctx.userId);
     await audit({
       organizationId: ctx.organizationId, userId: ctx.userId,
       action: 'RETRY_AGENT_TASK', module: 'KANTOR',

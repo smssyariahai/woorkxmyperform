@@ -18,6 +18,11 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       },
     });
     if (!task) return apiErr('Tugas tidak ditemukan.', 404);
+    // Wave 16 — riwayat per-user: tugas milik user lain (createdById
+    // terisi dan bukan milik peminta) tidak bisa dibaca lewat ID, sama
+    // seperti tidak ada (404). Tugas lama tanpa createdById (NULL) tetap
+    // bisa dibaca anggota kantor.
+    if (task.createdById && task.createdById !== ctx.userId) return apiErr('Tugas tidak ditemukan.', 404);
     return apiOk(task);
   } catch (e: any) {
     if (e instanceof Response) return e;

@@ -78,6 +78,11 @@ export interface KantorOfficeSnapshot {
    *  preferensi per-browser). Bila true, semua agent Idle ada di tempat
    *  tidur (placement-nya sudah ikut di `station.idle`). */
   sleep: boolean;
+  /** Tema scene bersama per kantor (Wave 15 — state server, bukan
+   *  preferensi per-browser): 'light' = siang, 'dark' = malam. Satu nilai
+   *  per org; diubah lewat POST /api/kantor/theme, disiarkan lewat event
+   *  SSE `kantor.theme_changed` (pola yang sama dengan Tidur). */
+  theme: 'dark' | 'light';
 }
 
 export type KantorTaskStatus =

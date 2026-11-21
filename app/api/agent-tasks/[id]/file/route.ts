@@ -19,9 +19,12 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     await requireModule(ctx, 'kantor');
     const task = await prisma.agentTask.findFirst({
       where: { id: params.id, organizationId: ctx.organizationId },
-      select: { id: true, resultPayload: true },
+      select: { id: true, createdById: true, resultPayload: true },
     });
     if (!task) return new Response('Not found', { status: 404 });
+    // Wave 16 — riwayat per-user: file laporan milik user lain tidak bisa
+    // diunduh lewat ID (404). Tugas lama tanpa createdById tetap bisa.
+    if (task.createdById && task.createdById !== ctx.userId) return new Response('Not found', { status: 404 });
     let stored: any = null;
     try {
       stored = JSON.parse(task.resultPayload || 'null');
