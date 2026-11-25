@@ -40,8 +40,9 @@ const PLANE_OFFSET = 0.195
  * gagal muat tidak pernah meruntuhkan Canvas). Selama PNG belum tiba, atau bila
  * gagal dimuat (404, offline, dsb.), dipakai tekstur fallback prosedural
  * "WOORK.id" dari textures.ts.
+ * Diekspor untuk dipakai komponen branding lain (WallLogo di branding.tsx).
  */
-function useLogoTexture(): THREE.Texture {
+export function useLogoTexture(): THREE.Texture {
   const [texture, setTexture] = useState<THREE.Texture>(() => woorkLogoFallback())
   useEffect(() => {
     let alive = true

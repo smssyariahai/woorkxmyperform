@@ -42,6 +42,8 @@ export const KANTOR_REALTIME_EVENTS = [
   'notification.created',
   'kantor.sleep_changed',
   'kantor.theme_changed',
+  'kantor.prayer_changed',
+  'kantor.briefing_changed',
 ] as const;
 
 export type KantorRealtimeEvent = (typeof KANTOR_REALTIME_EVENTS)[number];

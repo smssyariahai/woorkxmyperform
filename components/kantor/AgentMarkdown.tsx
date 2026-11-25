@@ -83,11 +83,11 @@ export function AgentMarkdown({ text }: { text: string }) {
       }
       blocks.push(
         <div key={key++} className="overflow-x-auto">
-          <table className="w-full border-collapse text-xs">
+          <table className="w-full table-fixed border-collapse text-xs">
             <thead>
               <tr>
                 {headers.map((h, j) => (
-                  <th key={j} className="border-b bg-muted/50 px-2 py-1 text-left font-medium text-muted">
+                  <th key={j} className="break-words border-b bg-muted/50 px-1.5 py-1 text-left font-medium text-muted">
                     {renderInline(h, `th-${key}-${j}`)}
                   </th>
                 ))}
@@ -97,7 +97,7 @@ export function AgentMarkdown({ text }: { text: string }) {
               {rows.map((row, r) => (
                 <tr key={r} className="border-b last:border-0">
                   {headers.map((_, j) => (
-                    <td key={j} className="px-2 py-1 align-top">
+                    <td key={j} className="break-words px-1.5 py-1 align-top">
                       {renderInline(row[j] ?? '', `td-${key}-${r}-${j}`)}
                     </td>
                   ))}

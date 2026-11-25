@@ -5,11 +5,14 @@
  * Impor 'three/examples/jsm/geometries/RoundedBoxGeometry.js' dipertahankan (ada di three 0.169.0); impor .ts gaya Vite dihapus ekstensinya.
  */
 
+import { Html } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
-import { useMemo, useRef, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
+import type { BriefingContent } from '@/lib/kantor/briefing'
 import type { Vec3 } from './office3d-layout'
+import { MeetingScreen } from './meeting-screen'
 import { arcadeScreen, merahPutih, screenTexture, signTexture } from './textures'
 
 // Low-poly props built from primitives. Rounded edges and PBR materials keep them from
@@ -165,10 +168,124 @@ export function Bookshelf({ position, rotation = 0 }: { position: Vec3; rotation
   </Group>
 }
 
-export function Television({ position }: { position: Vec3 }) {
+/** Ukuran permukaan layar TV (sama dengan plane layar yang sudah ada). */
+export const TV_SCREEN_SIZE: [number, number] = [1.88, 1.03]
+/** Viewport iframe (px) — rasio 940/515 = 1,825 sama dengan layar 1,88/1,03. */
+const WOORK_TV_VIEWPORT = { width: 940, height: 515 }
+/** distanceFactor drei: lebar dunia = px * distanceFactor / 400 -> 940*0,8/400 = 1,88. */
+const WOORK_TV_DISTANCE_FACTOR = (TV_SCREEN_SIZE[0] * 400) / WOORK_TV_VIEWPORT.width
+/** Batas dinding gedung (untuk uji oklusi TV). */
+export interface BuildingBounds { minX: number; maxX: number; minZ: number; maxZ: number }
+
+/**
+ * Apakah segmen kamera -> TV terhalang dinding gedung? Diuji terhadap
+ * dinding belakang (penuh 2,6 m), dinding kiri (penuh 2,6 m) dan dinding
+ * kanan (padat hanya 1,1 m, di atasnya kaca tembus pandang). Dinding depan
+ * hanya 0,55 m — tidak pernah menghalangi TV di y 1,35 dari kamera di atas.
+ */
+function tvOccluded(cam: THREE.Vector3, tv: THREE.Vector3, b: BuildingBounds): boolean {
+  const dx = tv.x - cam.x
+  const dy = tv.y - cam.y
+  const dz = tv.z - cam.z
+  const crosses = (axis: 'x' | 'z', at: number, lo: number, hi: number, top: number): boolean => {
+    const d = axis === 'x' ? dx : dz
+    if (Math.abs(d) < 1e-6) return false
+    const t = (at - (axis === 'x' ? cam.x : cam.z)) / d
+    if (t <= 0 || t >= 1) return false
+    const y = cam.y + dy * t
+    if (y <= 0 || y >= top) return false
+    const along = axis === 'x' ? cam.z + dz * t : cam.x + dx * t
+    return along >= lo && along <= hi
+  }
+  return (
+    crosses('z', b.minZ, b.minX, b.maxX, 2.6) ||
+    crosses('x', b.minX, b.minZ, b.maxZ, 2.6) ||
+    crosses('x', b.maxX, b.minZ, b.maxZ, 1.1)
+  )
+}
+
+/**
+ * Layar TV lounge: website woork.id LIVE via iframe (drei Html `transform`,
+ * dipetakan tepat ke permukaan layar 1,88 x 1,03 — tanpa distorsi, tanpa
+ * scrollbar, tanpa border).
+ *
+ * woork.id TIDAK mengirim X-Frame-Options / CSP frame-ancestors (dicek via
+ * curl: hanya header Next.js/Cloudflare biasa), jadi boleh di-frame. Situs
+ * publik — TIDAK ada bypass autentikasi, TIDAK ada halaman login pribadi.
+ *
+ * - Bila iframe gagal muat (onError / timeout 8 dtk) -> fallback OTOMATIS
+ *   ke slideshow branding WOORK (MeetingScreen, data nyata yang sama dengan
+ *   monitor ruang meeting).
+ * - Iframe pointer-events none supaya OrbitControls tetap jalan (TV hanya
+ *   pajangan, bukan layar sentuh).
+ * - Layar disembunyikan saat kamera berada di balik dinding (uji segmen
+ *   kamera -> TV) agar iframe tidak tembus tembok saat kamera mengorbit.
+ *
+ * CATATAN: yang diaktifkan adalah TV LOUNGE (TV utama di dinding belakang
+ * ruang tengah). TV ruang meeting TIDAK diganti — ia sudah menampilkan
+ * slideshow MeetingScreen (fitur Smart Meeting Room Display dari aktivitas
+ * Briefing) dan menggantinya akan merusak Presentation Mode briefing.
+ */
+function WoorkTvScreen({ position, briefingContent, building }: { position: Vec3; briefingContent: BriefingContent | null; building: BuildingBounds }) {
+  const [failed, setFailed] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  const [visible, setVisible] = useState(true)
+  const groupRef = useRef<THREE.Group>(null)
+  // Timeout: bila iframe belum onLoad dalam 8 dtk -> anggap gagal, pakai fallback.
+  useEffect(() => {
+    if (loaded || failed) return
+    const id = window.setTimeout(() => setFailed(true), 8000)
+    return () => window.clearTimeout(id)
+  }, [loaded, failed])
+  // Sembunyikan saat dinding menghalangi garis pandang kamera -> TV.
+  useFrame(({ camera }) => {
+    const group = groupRef.current
+    if (!group) return
+    const tv = new THREE.Vector3()
+    group.getWorldPosition(tv)
+    const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(group.getWorldQuaternion(new THREE.Quaternion()))
+    const inFront = camera.position.clone().sub(tv).dot(normal) > 0
+    const show = inFront && !tvOccluded(camera.position, tv, building)
+    setVisible((prev) => (prev === show ? prev : show))
+  })
+  // Fallback: slideshow branding WOORK (bukan layar kosong / error).
+  if (failed) {
+    return <group ref={groupRef} position={position}>
+      <group position={[0, 0, 0.05]}>
+        <MeetingScreen content={briefingContent} briefingActive={false} leaderName={null}/>
+      </group>
+    </group>
+  }
+  return <group ref={groupRef} position={position}>
+    <Html
+      transform
+      distanceFactor={WOORK_TV_DISTANCE_FACTOR}
+      position={[0, 0, 0.05]}
+      zIndexRange={[30, 0]}
+      style={{ display: visible ? 'block' : 'none', pointerEvents: 'none' }}
+    >
+      <iframe
+        src="https://woork.id/"
+        title="WOORK — woork.id"
+        width={WOORK_TV_VIEWPORT.width}
+        height={WOORK_TV_VIEWPORT.height}
+        style={{ border: 0, background: '#ffffff', display: 'block' }}
+        scrolling="no"
+        onLoad={() => setLoaded(true)}
+        onError={() => setFailed(true)}
+      />
+    </Html>
+  </group>
+}
+
+export function Television({ position, live = false, briefingContent = null, building }: { position: Vec3; live?: boolean; briefingContent?: BriefingContent | null; building?: BuildingBounds }) {
   return <Group position={position}>
     <RBox position={[0, 0, 0]} size={[2, 1.15, 0.08]} radius={0.03} color="#111416" roughness={0.3}/>
-    <mesh position={[0, 0, 0.045]}><planeGeometry args={[1.88, 1.03]}/><meshStandardMaterial color="#1d5a6b" emissive="#2a8aa0" emissiveIntensity={0.55} roughness={0.2}/></mesh>
+    {live && building ? (
+      <WoorkTvScreen position={[0, 0, 0]} briefingContent={briefingContent} building={building}/>
+    ) : (
+      <mesh position={[0, 0, 0.045]}><planeGeometry args={TV_SCREEN_SIZE}/><meshStandardMaterial color="#1d5a6b" emissive="#2a8aa0" emissiveIntensity={0.55} roughness={0.2}/></mesh>
+    )}
   </Group>
 }
 
@@ -592,20 +709,6 @@ export function StringLights({ position, length, night }: { position: Vec3; leng
       return <mesh key={index} position={[-length / 2 + t * length, -Math.sin(t * Math.PI) * 0.25, 0]}><sphereGeometry args={[0.05, 8, 6]}/><meshStandardMaterial color="#fff1c4" emissive="#ffcf6b" emissiveIntensity={night ? 2.2 : 0.2}/></mesh>
     })}
     {night && <pointLight position={[0, -0.4, 0]} color="#ffcf8a" intensity={6} distance={6} decay={2}/>}
-  </Group>
-}
-
-/** Straight stairs along x: `rise` up over `run` (negative run climbs towards -x). */
-export function Staircase({ position, run, rise, width }: { position: Vec3; run: number; rise: number; width: number }) {
-  const steps = 14
-  const tread = Math.abs(run) / steps
-  const direction = Math.sign(run)
-  return <Group position={position}>
-    {Array.from({ length: steps }, (_, index) => <RBox key={index} position={[direction * (index + 0.5) * tread, (index + 1) * (rise / steps) - 0.03, 0]} size={[tread + 0.04, 0.06, width]} radius={0.01} color="#8a5a3a" roughness={0.6}/>)}
-    {/* Stringer and handrail on the open side */}
-    <RBox position={[run / 2, rise / 2 - 0.1, -width / 2]} rotation={[0, 0, -direction * Math.atan2(rise, Math.abs(run))]} size={[Math.hypot(run, rise), 0.16, 0.06]} radius={0.02} color="#5a3a24"/>
-    <RBox position={[run / 2, rise / 2 + 0.85, -width / 2]} rotation={[0, 0, -direction * Math.atan2(rise, Math.abs(run))]} size={[Math.hypot(run, rise), 0.05, 0.05]} radius={0.02} color="#3a3f44" metalness={0.5}/>
-    {[0.25, 0.5, 0.75].map((t) => <RBox key={t} position={[run * t, rise * t + 0.42, -width / 2]} size={[0.04, 0.85, 0.04]} radius={0.01} color="#3a3f44" metalness={0.5}/>)}
   </Group>
 }
 

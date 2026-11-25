@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Boxes, ListChecks, MessageSquareText, PanelRight, PanelRightClose, Settings2 } from 'lucide-react';
+import { Boxes, Gauge, ListChecks, MessageSquareText, MoonStar, PanelRight, PanelRightClose, Settings2 } from 'lucide-react';
 import { KantorClient } from '@/components/kantor/KantorClient';
 import KantorRoom from '@/components/kantor/KantorRoom';
 import { CommandPanel } from '@/components/kantor/CommandPanel';
+import { CommandCenterPanel } from '@/components/kantor/CommandCenterPanel';
+import { KantorActivityPanels } from '@/components/kantor/KantorActivityPanels';
 import { cn } from '@/lib/utils';
 
 type ViewMode = '3d' | '2d';
@@ -13,11 +15,16 @@ type ViewMode = '3d' | '2d';
 /** Tab mobile (<xl): di HP scene 3D dan chat TIDAK ditumpuk — satu layar
  *  penuh per tab, seperti aplikasi chat. Di desktop (xl ke atas) keduanya
  *  berdampingan seperti biasa dan tab ini tidak tampil. */
-type MobileTab = 'scene' | 'chat';
+type MobileTab = 'scene' | 'chat' | 'command';
+
+/** Tab panel kanan desktop: AI Chat atau Pusat Kendali (Fase 7a1). Di HP
+ *  disinkronkan dengan MobileTab ('chat'/'command'). */
+type RightPanelTab = 'chat' | 'command';
 
 const STORAGE_KEY = 'woork.kantorView';
 const PANEL_STORAGE_KEY = 'woork.kantorPanel';
 const MOBILE_TAB_KEY = 'woork.kantorMobileTab';
+const RIGHT_TAB_KEY = 'woork.kantorRightPanel';
 
 /**
  * Pembungkus halaman /kantor: toggle tampilan 3D (kantor virtual Ruang)
@@ -29,7 +36,7 @@ const MOBILE_TAB_KEY = 'woork.kantorMobileTab';
  * tombol di header halaman / tombol X di header panel — tampil lagi lewat
  * tombol melayang di kanan bawah.
  *
- * Tinggi dinamis (Wave 8): root memakai max-h calc(100dvh - 7rem) — 7rem =
+ * Tinggi dinamis (Wave 8): root memakai h calc(100dvh - 7rem) — 7rem =
  * Topbar h-16 (64px) + padding main py-6 (48px). `dvh` (bukan vh) supaya
  * benar di browser HP yang address bar-nya muncul/hilang. Root memakai h
  * (TINGGI PASTI, bukan max-h): rantai flex-1/h-full KantorRoom → stage →
@@ -39,6 +46,11 @@ const MOBILE_TAB_KEY = 'woork.kantorMobileTab';
  * di HP). Bila konten pendek, area flex-1 (scene/panel) menyerap sisa
  * ruang; bila konten panjang, scroll pindah ke DALAM panel (thread chat)
  * atau scene — kolom ketik selalu terlihat tanpa scroll halaman penuh.
+ * Fallback vh (2026-11-24): di browser TANPA dukungan dvh, calc dvh
+ * tidak valid → tinggi root jatuh ke tinggi konten → panel chat jadi
+ * panjang mengikuti isi (bug yang dilaporkan user di HP). Karena itu
+ * root selalu membawa h calc(100vh - 7rem) sebagai dasar, dan dvh hanya
+ * menimpa lewat supports-[height:100dvh] bila browser mendukungnya.
  * Scene diberi min-h clamp(220px, 32dvh, 320px) sebagai jaring pengaman
  * (bukan h, karena flex-basis 0 dari flex-1 mengabaikan h); di xl panel
  * tertutup, scene diberi tinggi eksplisit calc(100dvh - 11rem) agar
@@ -52,13 +64,15 @@ const MOBILE_TAB_KEY = 'woork.kantorMobileTab';
  * lewat rantai w-full (KantorRoom/Office3D mengisi lebar parent; Canvas
  * R3F absolute inset-0; kamera di-reframe otomatis saat ukuran berubah).
  */
-export function KantorPageClient({ canManage = false }: { canManage?: boolean }) {
+export function KantorPageClient({ canManage = false, canViewCommandCenter = false }: { canManage?: boolean; canViewCommandCenter?: boolean }) {
   const [view, setView] = useState<ViewMode>('3d');
   // Sinyal perintah baru (naik tiap kirim perintah berhasil) -> KantorRoom
   // memuat ulang snapshot 3D segera, tanpa menunggu poll berikutnya.
   const [commandSignal, setCommandSignal] = useState(0);
   const [panelOpen, setPanelOpen] = useState(true);
   const [mobileTab, setMobileTab] = useState<MobileTab>('scene');
+  const [rightTab, setRightTab] = useState<RightPanelTab>('chat');
+  const [activityOpen, setActivityOpen] = useState(false);
 
   useEffect(() => {
     try {
@@ -67,7 +81,9 @@ export function KantorPageClient({ canManage = false }: { canManage?: boolean })
       const panel = localStorage.getItem(PANEL_STORAGE_KEY);
       if (panel === 'closed') setPanelOpen(false);
       const tab = localStorage.getItem(MOBILE_TAB_KEY);
-      if (tab === 'scene' || tab === 'chat') setMobileTab(tab);
+      if (tab === 'scene' || tab === 'chat' || tab === 'command') setMobileTab(tab);
+      const right = localStorage.getItem(RIGHT_TAB_KEY);
+      if (right === 'chat' || right === 'command') setRightTab(right);
     } catch {
       // abaikan — localStorage tidak tersedia
     }
@@ -75,8 +91,19 @@ export function KantorPageClient({ canManage = false }: { canManage?: boolean })
 
   const pickMobileTab = (next: MobileTab) => {
     setMobileTab(next);
+    // Tab mobile chat/command = tab panel kanan yang sama.
+    if (next === 'chat' || next === 'command') pickRightTab(next);
     try {
       localStorage.setItem(MOBILE_TAB_KEY, next);
+    } catch {
+      // abaikan
+    }
+  };
+
+  const pickRightTab = (next: RightPanelTab) => {
+    setRightTab(next);
+    try {
+      localStorage.setItem(RIGHT_TAB_KEY, next);
     } catch {
       // abaikan
     }
@@ -105,7 +132,7 @@ export function KantorPageClient({ canManage = false }: { canManage?: boolean })
   return (
     // Tinggi pasti dikurangi safe-area bawah (notch/home indicator iOS) — di
     // perangkat tanpa safe area, env(...) = 0 sehingga tidak berubah.
-    <div className="flex h-[calc(100dvh-7rem-env(safe-area-inset-bottom))] flex-col gap-3 xl:gap-4">
+    <div className="flex h-[calc(100vh-7rem)] supports-[height:100dvh]:h-[calc(100dvh-7rem-env(safe-area-inset-bottom))] flex-col gap-3 xl:gap-4">
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         <div className="inline-flex rounded-lg border bg-white dark:bg-slate-900 p-1" role="tablist" aria-label="Tampilan kantor">
           <button
@@ -149,6 +176,15 @@ export function KantorPageClient({ canManage = false }: { canManage?: boolean })
             <span className="hidden sm:inline">Kelola Agent</span>
           </Link>
         )}
+        <button
+          type="button"
+          onClick={() => setActivityOpen(true)}
+          className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border bg-white dark:bg-slate-900 px-3 py-1.5 text-sm font-medium text-muted transition-colors hover:text-ink"
+          title="Jadwal salat, musala, dan Morning Briefing"
+        >
+          <MoonStar className="h-4 w-4" />
+          <span className="hidden sm:inline">Musala &amp; Briefing</span>
+        </button>
         {/* Di HP, tab 3D/Chat di bawah menggantikan tombol ini. */}
         <button
           type="button"
@@ -190,15 +226,30 @@ export function KantorPageClient({ canManage = false }: { canManage?: boolean })
           <MessageSquareText className="h-4 w-4" />
           AI Chat
         </button>
+        {canViewCommandCenter && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mobileTab === 'command'}
+            onClick={() => pickMobileTab('command')}
+            className={cn(
+              'inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+              mobileTab === 'command' ? 'bg-brand text-white' : 'text-muted hover:text-ink',
+            )}
+          >
+            <Gauge className="h-4 w-4" />
+            Pusat Kendali
+          </button>
+        )}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 xl:flex-row xl:items-stretch xl:gap-4">
         <div
           className={cn(
             'min-w-0 w-full shrink-0 overflow-y-auto xl:flex-1',
-            // Mobile: tab Scene -> isi sisa tinggi; tab Chat -> sembunyi.
-            mobileTab === 'chat' ? 'hidden xl:block' : 'min-h-[clamp(220px,32dvh,320px)] flex-1 xl:h-auto',
-            panelOpen ? 'xl:h-auto' : 'xl:h-[calc(100dvh-11rem)]',
+            // Mobile: tab Scene -> isi sisa tinggi; tab lain -> sembunyi.
+            mobileTab === 'scene' ? 'min-h-[clamp(220px,32dvh,320px)] flex-1 xl:h-auto' : 'hidden xl:block',
+            panelOpen ? 'xl:h-auto' : 'xl:h-[calc(100vh-11rem)] supports-[height:100dvh]:xl:h-[calc(100dvh-11rem)]',
           )}
         >
           {view === '3d' ? <KantorRoom refreshSignal={commandSignal} fillHeight /> : <KantorClient />}
@@ -207,16 +258,54 @@ export function KantorPageClient({ canManage = false }: { canManage?: boolean })
         {panelOpen && (
           <div
             className={cn(
-              'min-h-0 flex-1 xl:w-[420px] xl:shrink-0 xl:flex-none',
-              // Mobile: tab Chat -> isi sisa tinggi; tab Scene -> sembunyi.
-              mobileTab === 'scene' && 'hidden xl:block',
+              'flex min-h-0 flex-1 flex-col gap-2 xl:w-[420px] xl:shrink-0 xl:flex-none',
+              // Mobile: tab Chat/Command -> isi sisa tinggi; tab Scene -> sembunyi.
+              // HARUS xl:flex (bukan xl:block): wrapper ini flex-col dan panel
+              // di dalamnya flex-1 — bila jadi block di desktop, flex-1 mati,
+              // tinggi panel mengikuti isi thread (chat jadi panjang melebihi
+              // scene, kolom ketik tenggelam di bawah lipatan; bug 2026-11-24).
+              mobileTab === 'scene' && 'hidden xl:flex',
             )}
           >
-            <CommandPanel
-              className="h-full"
-              onHide={togglePanel}
-              onCommandSent={() => setCommandSignal((n) => n + 1)}
-            />
+            {canViewCommandCenter && (
+              <div className="flex shrink-0 rounded-lg border bg-white dark:bg-slate-900 p-1" role="tablist" aria-label="Panel kanan">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={rightTab === 'chat'}
+                  onClick={() => pickRightTab('chat')}
+                  className={cn(
+                    'inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                    rightTab === 'chat' ? 'bg-brand text-white' : 'text-muted hover:text-ink',
+                  )}
+                >
+                  <MessageSquareText className="h-3.5 w-3.5" />
+                  AI Chat
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={rightTab === 'command'}
+                  onClick={() => pickRightTab('command')}
+                  className={cn(
+                    'inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                    rightTab === 'command' ? 'bg-brand text-white' : 'text-muted hover:text-ink',
+                  )}
+                >
+                  <Gauge className="h-3.5 w-3.5" />
+                  Pusat Kendali
+                </button>
+              </div>
+            )}
+            {rightTab === 'command' && canViewCommandCenter ? (
+              <CommandCenterPanel className="min-h-0 flex-1" />
+            ) : (
+              <CommandPanel
+                className="min-h-0 flex-1"
+                onHide={togglePanel}
+                onCommandSent={() => setCommandSignal((n) => n + 1)}
+              />
+            )}
           </div>
         )}
       </div>
@@ -233,6 +322,7 @@ export function KantorPageClient({ canManage = false }: { canManage?: boolean })
           AI Workspace
         </button>
       )}
+      <KantorActivityPanels open={activityOpen} onClose={() => setActivityOpen(false)} canManage={canManage} />
     </div>
   );
 }

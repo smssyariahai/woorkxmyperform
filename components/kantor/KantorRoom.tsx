@@ -77,6 +77,8 @@ const STATE_BADGE: Record<KantorStation['state'], string> = {
   Working: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200',
   Reviewing: 'bg-sky-100 text-sky-800 dark:bg-sky-900/50 dark:text-sky-200',
   Collaborating: 'bg-violet-100 text-violet-800 dark:bg-violet-900/50 dark:text-violet-200',
+  Praying: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-200',
+  Briefing: 'bg-violet-100 text-violet-800 dark:bg-violet-900/50 dark:text-violet-200',
   Offline: 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
   Unknown: 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200',
 }
@@ -305,7 +307,7 @@ export default function KantorRoom({
         ) : snapshot ? (
           <>
             <div className={fillHeight ? 'min-h-0 flex-1' : undefined}>
-              <Office3D stations={snapshot.stations} onSelectAgent={setSelected} fillHeight={fillHeight} sleep={snapshot.sleep ?? false} onToggleSleep={toggleSleep} theme={snapshot.theme ?? 'light'} onToggleTheme={toggleTheme} />
+              <Office3D stations={snapshot.stations} onSelectAgent={setSelected} fillHeight={fillHeight} sleep={snapshot.sleep ?? false} onToggleSleep={toggleSleep} theme={snapshot.theme ?? 'light'} onToggleTheme={toggleTheme} prayer={snapshot.prayer} briefing={snapshot.briefing} />
             </div>
             <p className="mt-2 shrink-0 text-xs text-slate-400 dark:text-slate-500">
               <span className="sm:hidden">Satu jari untuk memutar · dua jari untuk geser &amp; zoom · ketuk agent untuk detail</span>
@@ -344,7 +346,7 @@ export default function KantorRoom({
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
               <span className={`rounded-full px-2 py-0.5 font-medium ${STATE_BADGE[selected.state]}`}>{selected.state}</span>
-              <span className="text-slate-500 dark:text-slate-400">{selected.room === 'Lounge' ? 'Lounge' : 'Workspace'} · Meja {selected.seat}</span>
+              <span className="text-slate-500 dark:text-slate-400">{selected.room}{selected.room === 'Workspace' || selected.room === 'Lounge' ? ` · Meja ${selected.seat}` : ''}</span>
             </div>
             {selected.currentTask ? (
               <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">

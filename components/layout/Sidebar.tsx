@@ -22,6 +22,7 @@ import {
   KeyRound,
   Network,
   Crown,
+  Database,
   Globe2,
   Check,
   Settings2,
@@ -65,10 +66,11 @@ import {
   BarChart3,
   Trophy,
   Bell,
+  BedDouble,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
-import { signOut, useSession } from 'next-auth/react';
+import { useSession } from 'next-auth/react';
 import { toast } from 'sonner';
 import { MODULAR_MODULES, type ModularKey, type ModularPageDef, type ModuleAccessLevel } from '@/lib/modular';
 
@@ -82,6 +84,7 @@ const ICONS: Record<string, any> = {
   '/bot': Bot,
   '/hr': Briefcase,
   '/kantor': Building2,
+  '/admin-kantor/residence': BedDouble,
   '/admin-kantor/departments': Network,
   '/esign': FileSignature,
   '/audit': ShieldCheck,
@@ -89,6 +92,7 @@ const ICONS: Record<string, any> = {
   '/admin-kantor/users': Users,
   '/admin-kantor/roles': KeyRound,
   '/admin-kantor/office': Settings,
+  '/admin-kantor/catalog': Bot,
   '/settings': Settings,
   '/settings/profile': User,
   '/settings/team': Users,
@@ -96,6 +100,7 @@ const ICONS: Record<string, any> = {
   '/upgrade': CreditCard,
   '/admin/dashboard': Crown,
   '/admin/offices': Globe2,
+  '/admin/tenants': Database,
   '/admin/offices/new': Building2,
   '/admin/pengumuman': Megaphone,
   '/admin/pengguna': Users,
@@ -172,6 +177,10 @@ const MODULE_ICONS: Record<ModularKey, LucideIcon> = {
   hris: Users,
   esign: FileSignature,
   earsip: Archive,
+  perusahaan: Briefcase,
+  kalender: CalendarDays,
+  daily: Sun,
+  absensi: Clock,
   audit: ScrollText,
   setting: Settings,
   pusat: Crown,
@@ -467,38 +476,104 @@ export function Sidebar({
   const section = (moduleKey: ModularKey, title: string, pages: ModularPageDef[]) => {
     const visible = pages.filter((p) => canItem(p, moduleKey));
     if (visible.length === 0) return null;
+    const ModuleIcon = MODULE_ICONS[moduleKey] ?? LayoutDashboard;
+    // Satu halaman saja: tampilkan langsung sebagai tautan (tanpa header
+    // grup + chevron). Menghindari "Dashboard > Dashboard" yang mubazir.
+    if (visible.length === 1) {
+      const p = visible[0];
+      const active = isActive(p.href, visible);
+      return (
+        <Link
+          key={p.href}
+          href={p.href}
+          onClick={onNavigate}
+          title={p.label}
+          className={cn(
+            'flex w-full items-center gap-2.5 rounded-btn px-3 py-2 text-[13px] font-semibold transition-colors',
+            active
+              ? 'bg-brand-50 text-brand-700 dark:bg-brand-900/40 dark:text-brand-100'
+              : 'text-ink/85 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-ink',
+            collapsed && 'justify-center px-0'
+          )}
+        >
+          <ModuleIcon className="h-[18px] w-[18px] shrink-0" />
+          {!collapsed && <span className="flex-1 text-left">{p.label}</span>}
+        </Link>
+      );
+    }
     // Mode ikon (sidebar menciut): seksi selalu terbuka, judul disembunyikan seperti sebelumnya.
     const isCollapsed = !collapsed && !!collapsedSections[moduleKey];
     // Seksi ikut menyala bila salah satu halamannya sedang dibuka.
     const sectionActive = visible.some((p) => isActive(p.href, visible));
-    const ModuleIcon = MODULE_ICONS[moduleKey] ?? LayoutDashboard;
+    // Halaman utama modul sama dengan judul grup (mis. TAL > TAL):
+    // jadikan judul grup sebagai tautan ke halaman utama, dan sembunyikan
+    // anak pertama yang duplikat (hanya saat sidebar terbuka; saat menciut
+    // semua ikon halaman tetap tampil).
+    const hasMainLink = visible.length > 1 && visible[0].label === title;
+    const mainPage = hasMainLink ? visible[0] : null;
+    const listPages = hasMainLink && !collapsed ? visible.slice(1) : visible;
+    const mainActive = mainPage ? isActive(mainPage.href, visible) : false;
     return (
       <div key={moduleKey}>
         {!collapsed && (
-          <button
-            type="button"
-            onClick={() => toggleSection(moduleKey)}
-            aria-expanded={!isCollapsed}
-            className={cn(
-              'flex w-full items-center gap-2.5 rounded-btn px-3 py-2 text-[13px] font-semibold transition-colors',
-              // Seksi aktif HANYA diwarnai teksnya (tanpa background): kalau
-              // header ikut ber-background biru, bloknya menempel dengan
-              // item anak yang aktif dan terlihat seperti satu blok bug.
-              sectionActive
-                ? 'text-brand-700 dark:text-brand-100'
-                : 'text-ink/85 hover:bg-slate-100 dark:hover:bg-slate-800'
-            )}
-          >
-            <ModuleIcon className="h-[18px] w-[18px] shrink-0" />
-            <span className="flex-1 text-left">{title}</span>
-            <ChevronDown
-              className={cn('h-4 w-4 shrink-0 text-muted transition-transform', isCollapsed && '-rotate-90')}
-            />
-          </button>
+          mainPage ? (
+            <div
+              className={cn(
+                'flex w-full items-center gap-2.5 rounded-btn px-3 py-2 text-[13px] font-semibold transition-colors',
+                mainActive
+                  ? 'bg-brand-50 text-brand-700 dark:bg-brand-900/40 dark:text-brand-100'
+                  : sectionActive
+                    ? 'text-brand-700 dark:text-brand-100'
+                    : 'text-ink/85 hover:bg-slate-100 dark:hover:bg-slate-800'
+              )}
+            >
+              <Link
+                href={mainPage.href}
+                onClick={onNavigate}
+                title={title}
+                className="flex min-w-0 flex-1 items-center gap-2.5"
+              >
+                <ModuleIcon className="h-[18px] w-[18px] shrink-0" />
+                <span className="flex-1 text-left">{title}</span>
+              </Link>
+              <button
+                type="button"
+                onClick={() => toggleSection(moduleKey)}
+                aria-expanded={!isCollapsed}
+                aria-label={isCollapsed ? `Buka submenu ${title}` : `Tutup submenu ${title}`}
+                className="shrink-0 rounded-btn p-0.5 text-muted transition-colors hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+              >
+                <ChevronDown
+                  className={cn('h-4 w-4 transition-transform', isCollapsed && '-rotate-90')}
+                />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => toggleSection(moduleKey)}
+              aria-expanded={!isCollapsed}
+              className={cn(
+                'flex w-full items-center gap-2.5 rounded-btn px-3 py-2 text-[13px] font-semibold transition-colors',
+                // Seksi aktif HANYA diwarnai teksnya (tanpa background): kalau
+                // header ikut ber-background biru, bloknya menempel dengan
+                // item anak yang aktif dan terlihat seperti satu blok bug.
+                sectionActive
+                  ? 'text-brand-700 dark:text-brand-100'
+                  : 'text-ink/85 hover:bg-slate-100 dark:hover:bg-slate-800'
+              )}
+            >
+              <ModuleIcon className="h-[18px] w-[18px] shrink-0" />
+              <span className="flex-1 text-left">{title}</span>
+              <ChevronDown
+                className={cn('h-4 w-4 shrink-0 text-muted transition-transform', isCollapsed && '-rotate-90')}
+              />
+            </button>
+          )
         )}
         {!isCollapsed && (
           <div className={cn('mt-1 space-y-0.5 pb-1', !collapsed && 'pl-5')}>
-            {groupedPages(visible).map((group) => (
+            {groupedPages(listPages).map((group) => (
               <div key={group.section ?? ''}>
                 {group.section && (
                   <p className="px-3 pb-0.5 pt-2 text-[10px] font-bold uppercase tracking-widest text-muted/70">
@@ -687,7 +762,10 @@ export function Sidebar({
                   } catch {
                     /* abaikan */
                   }
-                  signOut({ callbackUrl: pathname.startsWith('/admin') ? '/admin' : '/login' });
+                  // Logout lewat rute server /api/auth/logout: cookie sesi
+                  // dihapus di server (kedua nama cookie) lalu redirect
+                  // PENUH ke pintu login — sesi tidak bisa "nyangkut".
+                  window.location.href = `/api/auth/logout?door=${pathname.startsWith('/admin') ? 'admin' : 'office'}`;
                 }}
                 className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-[13px] text-danger hover:bg-red-50 dark:hover:bg-red-900/20"
               >

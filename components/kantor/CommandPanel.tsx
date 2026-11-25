@@ -308,11 +308,11 @@ function ResultTable({ rows }: { rows: Record<string, unknown>[] }) {
   if (columns.length === 0) return null;
   return (
     <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-xs">
+      <table className="w-full table-fixed border-collapse text-xs">
         <thead>
           <tr>
             {columns.map((c) => (
-              <th key={c} className="border-b bg-muted/50 px-2 py-1 text-left font-medium text-muted">
+              <th key={c} className="break-words border-b bg-muted/50 px-1.5 py-1 text-left font-medium text-muted">
                 {prettyKey(c)}
               </th>
             ))}
@@ -322,7 +322,7 @@ function ResultTable({ rows }: { rows: Record<string, unknown>[] }) {
           {shown.map((row, i) => (
             <tr key={i} className="border-b last:border-0">
               {columns.map((c) => (
-                <td key={c} className="px-2 py-1 align-top">
+                <td key={c} className="break-words px-1.5 py-1 align-top">
                   {formatCell(row[c])}
                 </td>
               ))}
@@ -1046,7 +1046,7 @@ export function CommandPanel({
             <div
               ref={threadRef}
               onScroll={onThreadScroll}
-              className="min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden p-3"
+              className="min-h-0 min-w-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden p-2.5 sm:space-y-4 sm:p-3"
               aria-live="polite"
             >
               {loadingTasks ? (
