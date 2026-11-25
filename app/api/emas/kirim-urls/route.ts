@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -30,6 +30,7 @@ async function listUrls(organizationId: string, scope: string) {
 export async function GET(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'emas', 'READ');
     const { searchParams } = new URL(req.url);
     const scope = searchParams.get('scope') || 'simulasi';
     const urls = await listUrls(ctx.organizationId, scope);
@@ -44,6 +45,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'emas', 'WRITE');
     const b = await req.json().catch(() => ({}));
     const scope = String(b.scope || 'simulasi');
     const judul = String(b.judul || '').trim();
@@ -69,6 +71,7 @@ export async function POST(req: Request) {
 export async function PUT(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'emas', 'WRITE');
     const b = await req.json().catch(() => ({}));
     const scope = String(b.scope || 'simulasi');
     const judul = String(b.judul || '').trim();
@@ -94,6 +97,7 @@ export async function PUT(req: Request) {
 export async function DELETE(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'emas', 'WRITE');
     const { searchParams } = new URL(req.url);
     const scope = searchParams.get('scope') || 'simulasi';
     const id = searchParams.get('id') || '';

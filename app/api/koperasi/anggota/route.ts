@@ -5,7 +5,7 @@
 // diperlonggar sesuai kontrak Gelombang 5; foto disimpan sebagai file
 // di uploads/koperasi/, bukan data URL di DB).
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import {
   applyAnggotaPhotos,
@@ -17,10 +17,11 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-/** GET /api/koperasi/anggota?search=&cabang=&page=&pageSize= — semua user login org boleh baca. */
+/** GET /api/koperasi/anggota?search=&cabang=&page=&pageSize= — butuh akses modul Koperasi (READ, Bab 8 Fase 7). */
 export async function GET(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'koperasi', 'READ');
     const q = new URL(req.url).searchParams;
     const search = (q.get('search') ?? '').trim() || undefined;
     const cabang = (q.get('cabang') ?? '').trim() || undefined;
@@ -63,6 +64,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'koperasi', 'WRITE');
     const body = await req.json().catch(() => ({}));
     const cabangList = await getCabangList(ctx.organizationId);
     const { data, error } = parseAnggotaInput(body, { isCreate: true, cabangList });

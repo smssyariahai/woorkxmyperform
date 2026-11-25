@@ -5,7 +5,7 @@
 // Foto PATCH: data URL baru = ganti file, tidak ada field = pertahankan,
 // string kosong = hapus foto.
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import {
   applyAnggotaPhotos,
@@ -22,6 +22,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'koperasi', 'READ');
     const row = await prisma.koperasiAnggota.findFirst({
       where: { id: params.id, organizationId: ctx.organizationId },
     });
@@ -37,6 +38,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'koperasi', 'WRITE');
     const existing = await prisma.koperasiAnggota.findFirst({
       where: { id: params.id, organizationId: ctx.organizationId },
     });
@@ -75,6 +77,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'koperasi', 'WRITE');
     if (!isKoperasiAdmin(ctx)) {
       return apiErr('Hanya admin kantor yang dapat menghapus anggota.', 403);
     }

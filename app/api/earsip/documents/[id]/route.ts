@@ -10,6 +10,7 @@ import {
   archiveDocumentInclude,
   canAccessConfidential,
   deleteEarsipFile,
+  hydrateArchiveDocuments,
   mapArchiveDocument,
   parseDocumentUpdate,
 } from '@/lib/earsip/server';
@@ -23,7 +24,8 @@ async function findDocument(ctx: { organizationId: string }, id: string, canConf
   });
   if (!row) return null;
   if (row.confidentiality === 'CONFIDENTIAL' && !canConfidential) return null;
-  return row;
+  const [hydrated] = await hydrateArchiveDocuments([row]);
+  return hydrated;
 }
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
@@ -79,7 +81,8 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
       description: `${ctx.name} ${archivedNow ? 'mengarsipkan' : 'mengubah'} dokumen arsip "${updated.title}"`,
       ipAddress: getClientIp(req),
     });
-    return apiOk(mapArchiveDocument(updated as never));
+    const [hydrated] = await hydrateArchiveDocuments([updated]);
+    return apiOk(mapArchiveDocument(hydrated as never));
   } catch (e: unknown) {
     if (e instanceof Response) return e;
     return apiErr('Gagal mengubah dokumen arsip.', 500);

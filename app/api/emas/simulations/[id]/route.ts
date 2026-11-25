@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'emas', 'WRITE');
     const row = await prisma.simulation.findFirst({
       where: { id: params.id, organizationId: ctx.organizationId, userId: ctx.userId },
       select: { id: true },

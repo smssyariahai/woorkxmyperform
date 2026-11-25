@@ -9,6 +9,7 @@ import {
   archiveDocumentInclude,
   canAccessConfidential,
   confidentialWhere,
+  hydrateArchiveDocuments,
   mapArchiveDocument,
 } from '@/lib/earsip/server';
 
@@ -38,7 +39,7 @@ export async function GET(req: Request) {
       totalCategories,
       totalUploads: totalDocuments,
       totalSizeBytes: sizeAgg._sum.fileSize ?? 0,
-      latestDocuments: latest.map((r) => mapArchiveDocument(r as never)),
+      latestDocuments: (await hydrateArchiveDocuments(latest)).map((r) => mapArchiveDocument(r as never)),
     });
   } catch (e: unknown) {
     if (e instanceof Response) return e;

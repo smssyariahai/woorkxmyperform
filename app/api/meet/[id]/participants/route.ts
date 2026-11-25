@@ -10,6 +10,7 @@ import { apiOk, apiErr } from '@/lib/utils';
 import { audit } from '@/lib/audit';
 import {
   PARTICIPANT_ROLES,
+  attachParticipantUsers,
   createGuestToken,
   getMeetingSetting,
   inviteNotification,
@@ -103,8 +104,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
               snapshotDepartment: m.department?.name ?? null,
               snapshotBranch: m.employment?.branch ?? null,
             },
+            // MeetingParticipant TIDAK punya relasi `user` di tenant client
+            // — digabung belakangan via `attachParticipantUsers`.
             include: {
-              user: { select: { id: true, name: true, email: true, avatar: true } },
               guestToken: {
                 select: { accessToken: true, tokenExpiresAt: true, revokedAt: true, scope: true },
               },
@@ -123,7 +125,6 @@ export async function POST(req: Request, { params }: { params: { id: string } })
               status: 'INVITED',
             },
             include: {
-              user: { select: { id: true, name: true, email: true, avatar: true } },
               guestToken: {
                 select: { accessToken: true, tokenExpiresAt: true, revokedAt: true, scope: true },
               },
@@ -163,13 +164,14 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       description: `Menambah ${created.length} peserta ke meeting "${meeting.title}" (${meeting.id})`,
     });
 
-    const mapped = (created as never[]).map((p) => {
-      const row = p as Parameters<typeof mapParticipant>[0];
-      const withToken = tokenByParticipant.has(row.id)
-        ? { ...row, guestToken: { accessToken: tokenByParticipant.get(row.id)!, tokenExpiresAt: null, revokedAt: null, scope: 'JOIN' } }
-        : row;
-      return mapParticipant(withToken, meeting.id);
-    });
+    const mapped = (await attachParticipantUsers(created as Array<{ userId: string | null }>))
+      .map((p) => {
+        const row = p as Parameters<typeof mapParticipant>[0];
+        const withToken = tokenByParticipant.has(row.id)
+          ? { ...row, guestToken: { accessToken: tokenByParticipant.get(row.id)!, tokenExpiresAt: null, revokedAt: null, scope: 'JOIN' } }
+          : row;
+        return mapParticipant(withToken, meeting.id);
+      });
     return apiOk({ participants: mapped, added: mapped.length }, 201);
   } catch (e: unknown) {
     if (e instanceof Response) return e;
@@ -234,16 +236,16 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     if (parsed.data.role === 'HOST') {
       return apiErr('Peran HOST hanya dimiliki pembuat meeting.', 400);
     }
-    const updated = await prisma.meetingParticipant.update({
+    const updatedRow = await prisma.meetingParticipant.update({
       where: { id: participant.id },
       data: { role: parsed.data.role },
       include: {
-        user: { select: { id: true, name: true, email: true, avatar: true } },
         guestToken: {
           select: { accessToken: true, tokenExpiresAt: true, revokedAt: true, scope: true },
         },
       },
     });
+    const [updated] = await attachParticipantUsers([updatedRow]);
     await audit({
       organizationId: ctx.organizationId,
       userId: ctx.userId,

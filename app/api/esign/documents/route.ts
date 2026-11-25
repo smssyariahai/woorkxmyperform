@@ -24,10 +24,9 @@ export async function GET(req: Request) {
         { category: { contains: q, mode: 'insensitive' } },
       ];
     }
-    const items = await prisma.esignDocument.findMany({
+    const rows = await prisma.esignDocument.findMany({
       where,
       include: {
-        createdBy: { select: { id: true, name: true } },
         signers: {
           select: { id: true, signerName: true, signingStatus: true, signingOrder: true },
           orderBy: { signingOrder: 'asc' },
@@ -36,6 +35,14 @@ export async function GET(req: Request) {
       orderBy: { createdAt: 'desc' },
       take: 200,
     });
+    // EsignDocument TIDAK punya relasi `createdBy` di tenant client — ambil
+    // dari mirror User (Lapisan F).
+    const createdByIds = [...new Set(rows.map((r) => r.createdById).filter((id): id is string => !!id))];
+    const createdByUsers = createdByIds.length
+      ? await prisma.user.findMany({ where: { id: { in: createdByIds } }, select: { id: true, name: true } })
+      : [];
+    const byId = new Map(createdByUsers.map((u) => [u.id, u]));
+    const items = rows.map((r) => ({ ...r, createdBy: r.createdById ? byId.get(r.createdById) ?? null : null }));
     return apiOk({ items });
   } catch (e: any) {
     if (e instanceof Response) return e;

@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db';
 import { requireAuth } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import {
+  attachAuthor,
   mapAnnouncement,
   parseAnnouncementInput,
 } from '@/lib/pengumuman/server';
@@ -17,10 +18,9 @@ export async function GET(
     const ctx = await requireAuth();
     const row = await prisma.announcement.findFirst({
       where: { id: params.id, organizationId: ctx.organizationId },
-      include: { author: { select: { name: true, email: true } } },
     });
     if (!row) return apiErr('Pengumuman tidak ditemukan.', 404);
-    return apiOk({ announcement: mapAnnouncement(row) });
+    return apiOk({ announcement: mapAnnouncement(await attachAuthor(row)) });
   } catch (e: any) {
     if (e instanceof Response) return e;
     return apiErr('Gagal memuat pengumuman.', 500);
@@ -93,9 +93,8 @@ export async function PATCH(
     const updated = await prisma.announcement.update({
       where: { id: row.id },
       data: update as never,
-      include: { author: { select: { name: true, email: true } } },
     });
-    return apiOk({ announcement: mapAnnouncement(updated) });
+    return apiOk({ announcement: mapAnnouncement(await attachAuthor(updated)) });
   } catch (e: any) {
     if (e instanceof Response) return e;
     return apiErr('Gagal mengubah pengumuman.', 500);

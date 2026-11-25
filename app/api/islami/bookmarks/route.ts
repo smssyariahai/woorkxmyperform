@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -28,6 +28,7 @@ function mapBookmark(b: any, ctx: { email: string; name: string }) {
 export async function GET(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'islami', 'READ');
     const { searchParams } = new URL(req.url);
     if (searchParams.get('public') === 'true') {
       const rows = await prisma.quranBookmark.findMany({
@@ -52,6 +53,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'islami', 'WRITE');
     const b = await req.json().catch(() => ({}));
     const surahId = Number(b.surahId);
     const ayahNumber = Number(b.ayahNumber);

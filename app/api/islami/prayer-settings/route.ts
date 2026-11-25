@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -34,6 +34,7 @@ function mapSettings(s: any) {
 export async function GET() {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'islami', 'READ');
     const row = await prisma.prayerUserSetting.findUnique({ where: { userId: ctx.userId } });
     if (!row) return apiErr('Pengaturan belum ada.', 404);
     return apiOk({ settings: mapSettings(row) });
@@ -47,6 +48,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'islami', 'WRITE');
     const s = await req.json().catch(() => ({}));
     const data: Record<string, any> = { organizationId: ctx.organizationId, userId: ctx.userId };
     for (const f of FIELDS) {

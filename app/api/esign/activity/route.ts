@@ -25,19 +25,26 @@ export async function GET(req: Request) {
     if (documentId) where.documentId = documentId;
     if (action) where.action = action;
 
-    const [total, items] = await Promise.all([
+    const [total, rows] = await Promise.all([
       prisma.esignAuditLog.count({ where }),
       prisma.esignAuditLog.findMany({
         where,
         include: {
           document: { select: { id: true, documentNumber: true, title: true, status: true } },
-          user: { select: { id: true, name: true } },
         },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
     ]);
+    // EsignAuditLog TIDAK punya relasi `user` di tenant client — ambil dari
+    // mirror User (Lapisan F).
+    const userIds = [...new Set(rows.map((r) => r.userId).filter((id): id is string => !!id))];
+    const users = userIds.length
+      ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })
+      : [];
+    const byId = new Map(users.map((u) => [u.id, u]));
+    const items = rows.map((r) => ({ ...r, user: r.userId ? byId.get(r.userId) ?? null : null }));
 
     return apiOk({ items, page, limit, total, totalPages: Math.max(1, Math.ceil(total / limit)) });
   } catch (e: any) {

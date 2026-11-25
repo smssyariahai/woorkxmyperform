@@ -7,6 +7,7 @@ import { apiOk, apiErr } from '@/lib/utils';
 import { audit, getClientIp } from '@/lib/audit';
 import {
   archiveCategoryInclude,
+  hydrateArchiveCategories,
   mapArchiveCategory,
   parseCategoryInput,
   userCanManageEarsip,
@@ -23,7 +24,7 @@ export async function GET(req: Request) {
       orderBy: [{ parentId: 'asc' }, { name: 'asc' }],
       include: archiveCategoryInclude,
     });
-    return apiOk({ categories: rows.map((r) => mapArchiveCategory(r as never)), canManage });
+    return apiOk({ categories: (await hydrateArchiveCategories(rows)).map((r) => mapArchiveCategory(r as never)), canManage });
   } catch (e: unknown) {
     if (e instanceof Response) return e;
     return apiErr('Gagal memuat kategori arsip.', 500);
@@ -62,7 +63,8 @@ export async function POST(req: Request) {
       description: `${ctx.name} membuat kategori arsip "${d.name}"${d.parentId ? ' (subkategori)' : ''}`,
       ipAddress: getClientIp(req),
     });
-    return apiOk(mapArchiveCategory(saved as never), 201);
+    const [hydrated] = await hydrateArchiveCategories([saved]);
+    return apiOk(mapArchiveCategory(hydrated as never), 201);
   } catch (e: unknown) {
     if (e instanceof Response) return e;
     return apiErr('Gagal membuat kategori arsip.', 500);

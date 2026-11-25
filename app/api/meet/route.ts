@@ -8,12 +8,14 @@ import { apiOk, apiErr } from '@/lib/utils';
 import { audit } from '@/lib/audit';
 import {
   MEETING_TYPES,
+  attachMeetingUsers,
   createGuestToken,
   getMeetingSetting,
   hashMeetingPassword,
   inviteNotification,
   mapMeeting,
   meetVisibilityWhere,
+  meetingInclude,
   notifyMeetingParticipants,
   userCanManageMeet,
 } from '@/lib/meet/server';
@@ -123,23 +125,17 @@ export async function GET(req: Request) {
       }
     }
 
-    const rows = await prisma.meeting.findMany({
-      where: where as never,
-      orderBy,
-      take: limit,
-      include: {
-        host: { select: { id: true, name: true, email: true, avatar: true } },
-        participants: {
-          include: {
-            user: { select: { id: true, name: true, email: true, avatar: true } },
-            guestToken: {
-              select: { accessToken: true, tokenExpiresAt: true, revokedAt: true, scope: true },
-            },
-          },
-        },
-        _count: { select: { agendaItems: true, notes: true, chatMessages: true, recordings: true } },
-      },
-    });
+    // Meeting TIDAK punya relasi `host` dan MeetingParticipant TIDAK punya
+    // relasi `user` di tenant client — digabung via `attachMeetingUsers`
+    // (bentuk hasil sama seperti include lama).
+    const rows = await attachMeetingUsers(
+      await prisma.meeting.findMany({
+        where: where as never,
+        orderBy,
+        take: limit,
+        include: meetingInclude,
+      })
+    );
     return apiOk({
       meetings: rows.map((r) => mapMeeting(r as never)),
       canManage,
@@ -255,18 +251,7 @@ export async function POST(req: Request) {
           ],
         },
       },
-      include: {
-        host: { select: { id: true, name: true, email: true, avatar: true } },
-        participants: {
-          include: {
-            user: { select: { id: true, name: true, email: true, avatar: true } },
-            guestToken: {
-              select: { accessToken: true, tokenExpiresAt: true, revokedAt: true, scope: true },
-            },
-          },
-        },
-        _count: { select: { agendaItems: true, notes: true, chatMessages: true, recordings: true } },
-      },
+      include: meetingInclude,
     });
 
     // Token tamu untuk peserta eksternal.
@@ -296,21 +281,11 @@ export async function POST(req: Request) {
       ipAddress: undefined,
     });
 
-    const fresh = await prisma.meeting.findUnique({
+    const freshRow = await prisma.meeting.findUnique({
       where: { id: meeting.id },
-      include: {
-        host: { select: { id: true, name: true, email: true, avatar: true } },
-        participants: {
-          include: {
-            user: { select: { id: true, name: true, email: true, avatar: true } },
-            guestToken: {
-              select: { accessToken: true, tokenExpiresAt: true, revokedAt: true, scope: true },
-            },
-          },
-        },
-        _count: { select: { agendaItems: true, notes: true, chatMessages: true, recordings: true } },
-      },
+      include: meetingInclude,
     });
+    const [fresh] = await attachMeetingUsers(freshRow ? [freshRow] : []);
     return apiOk(mapMeeting(fresh as never), 201);
   } catch (e: unknown) {
     if (e instanceof Response) return e;

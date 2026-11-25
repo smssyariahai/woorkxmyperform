@@ -18,11 +18,20 @@ const MIME: Record<string, string> = {
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   try {
     const ctx = await requirePermission('INBOX_VIEW');
+    // ConversationMessage TIDAK punya relasi `conversation.organization`
+    // di tenant client — cek kepemilikan dua langkah: ambil pesan dulu,
+    // lalu bandingkan organizationId skalar percakapannya (pola baku
+    // Lapisan F). Pesan dari kantor lain tetap 404 (tidak bocor).
     const msg = await prisma.conversationMessage.findFirst({
-      where: { id: params.id, conversation: { organizationId: ctx.organizationId } },
-      select: { id: true, messageType: true },
+      where: { id: params.id },
+      select: { id: true, messageType: true, conversationId: true },
     });
     if (!msg || msg.messageType !== 'IMAGE') return apiErr('Gambar tidak ditemukan.', 404);
+    const conv = await prisma.conversation.findUnique({
+      where: { id: msg.conversationId },
+      select: { organizationId: true },
+    });
+    if (!conv || conv.organizationId !== ctx.organizationId) return apiErr('Gambar tidak ditemukan.', 404);
 
     const dir = join(process.cwd(), 'uploads', 'messages');
     // cari file dengan ekstensi yang didukung

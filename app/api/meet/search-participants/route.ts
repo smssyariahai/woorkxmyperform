@@ -21,10 +21,19 @@ export async function GET(req: Request) {
       status: 'ACTIVE',
     };
     if (q) {
-      (where as Record<string, unknown>).OR = [
-        { user: { name: { contains: q, mode: 'insensitive' } } },
-        { user: { email: { contains: q, mode: 'insensitive' } } },
-      ];
+      // Filter relasi `user` tidak bisa dipakai pada Membership di tenant
+      // client — selesaikan dulu id user yang cocok, lalu filter dengan
+      // `userId in [...]` (Lapisan F).
+      const matched = await prisma.user.findMany({
+        where: {
+          OR: [
+            { name: { contains: q, mode: 'insensitive' } },
+            { email: { contains: q, mode: 'insensitive' } },
+          ],
+        },
+        select: { id: true },
+      });
+      (where as Record<string, unknown>).userId = { in: matched.map((u) => u.id) };
     }
     if (department) {
       (where as Record<string, unknown>).department = {
@@ -37,16 +46,29 @@ export async function GET(req: Request) {
       };
     }
 
-    const rows = await prisma.membership.findMany({
+    // Membership TIDAK punya relasi `user` di tenant client (dan `orderBy`
+    // relasi juga tidak bisa) — user diambil terpisah, digabung, diurutkan
+    // per nama di JS, lalu diambil 20 pertama (sama seperti sebelumnya).
+    const memberRows = await prisma.membership.findMany({
       where: where as never,
       include: {
-        user: { select: { id: true, name: true, email: true, avatar: true } },
         department: { select: { id: true, name: true } },
         employment: { select: { position: true, branch: true } },
       },
-      orderBy: { user: { name: 'asc' } },
-      take: 20,
     });
+    const participantUserIds = [...new Set(memberRows.map((r) => r.userId))];
+    const participantUsers = participantUserIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: participantUserIds } },
+          select: { id: true, name: true, email: true, avatar: true },
+        })
+      : [];
+    const participantUserById = new Map(participantUsers.map((u) => [u.id, u]));
+    const rows = memberRows
+      .map((r) => ({ ...r, user: participantUserById.get(r.userId) ?? null }))
+      .filter((r): r is typeof r & { user: { id: string; name: string; email: string; avatar: string | null } } => !!r.user)
+      .sort((a, b) => a.user.name.localeCompare(b.user.name))
+      .slice(0, 20);
     return apiOk({
       participants: rows.map((r) => ({
         id: r.user.id,

@@ -14,7 +14,7 @@ async function findOne(ctx: { organizationId: string }, id: string) {
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   try {
     const ctx = await requirePermission('HR_VIEW');
-    const item = await prisma.hrEmployee.findFirst({
+    const row = await prisma.hrEmployee.findFirst({
       where: { id: params.id, organizationId: ctx.organizationId },
       include: {
         contracts: { orderBy: { startDate: 'desc' } },
@@ -25,10 +25,15 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
             vacancy: { select: { id: true, title: true } },
           },
         },
-        createdBy: { select: { id: true, name: true } },
       },
     });
-    if (!item) return apiErr('Karyawan tidak ditemukan.', 404);
+    if (!row) return apiErr('Karyawan tidak ditemukan.', 404);
+    // HrEmployee TIDAK punya relasi `createdBy` di tenant client — ambil
+    // dari mirror User (Lapisan F).
+    const createdByUser = row.createdById
+      ? await prisma.user.findUnique({ where: { id: row.createdById }, select: { id: true, name: true } })
+      : null;
+    const item = { ...row, createdBy: createdByUser };
     const perms = await getUserPermissions(ctx);
     const canManage = perms.has('*') || perms.has('HR_MANAGE');
     return apiOk({ item, canManage });

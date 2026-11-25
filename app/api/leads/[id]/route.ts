@@ -36,8 +36,13 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     const updated = await prisma.lead.update({
       where: { id: lead.id },
       data,
-      include: { stage: true, customer: true, owner: { select: { id: true, name: true } } },
+      include: { stage: true, customer: true },
     });
+    // Lead TIDAK punya relasi `owner` di tenant client — ambil dari
+    // mirror User (pola baku Lapisan F).
+    const owner = updated.ownerId
+      ? await prisma.user.findUnique({ where: { id: updated.ownerId }, select: { id: true, name: true } })
+      : null;
 
     if (stageChanged) {
       await prisma.activity.create({
@@ -60,7 +65,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
       });
     }
 
-    return apiOk(updated);
+    return apiOk({ ...updated, owner: owner ?? null });
   } catch (e: any) {
     if (e instanceof Response) return e;
     return apiErr('Gagal mengubah lead.', 500);

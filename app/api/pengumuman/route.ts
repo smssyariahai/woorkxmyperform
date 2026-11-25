@@ -2,6 +2,8 @@ import { prisma } from '@/lib/db';
 import { requireAuth } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import {
+  attachAuthor,
+  attachAuthors,
   mapAnnouncement,
   parseAnnouncementInput,
 } from '@/lib/pengumuman/server';
@@ -35,9 +37,9 @@ export async function GET(req: Request) {
       where: where as never,
       orderBy: { createdAt: 'desc' },
       take: limit,
-      include: { author: { select: { name: true, email: true } } },
     });
-    return apiOk({ announcements: rows.map(mapAnnouncement) });
+    const withAuthors = await attachAuthors(rows);
+    return apiOk({ announcements: withAuthors.map(mapAnnouncement) });
   } catch (e: any) {
     if (e instanceof Response) return e;
     return apiErr('Gagal memuat pengumuman.', 500);
@@ -80,9 +82,8 @@ export async function POST(req: Request) {
         status: d.scheduledAt ? 'scheduled' : 'draft',
         scheduledAt: d.scheduledAt ?? null,
       },
-      include: { author: { select: { name: true, email: true } } },
     });
-    return apiOk(mapAnnouncement(saved), 201);
+    return apiOk(mapAnnouncement(await attachAuthor(saved)), 201);
   } catch (e: any) {
     if (e instanceof Response) return e;
     return apiErr('Gagal membuat pengumuman.', 500);

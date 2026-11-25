@@ -3,7 +3,7 @@
 // milik organisasi peminta (atau Administrator Pusat), 404 bila tidak ada
 // file; Content-Type sesuai ekstensi.
 import { prisma } from '@/lib/db';
-import { getAuthContext } from '@/lib/auth-helpers';
+import { getAuthContext, requireModularAccess } from '@/lib/auth-helpers';
 import { koperasiPhotoPath } from '@/lib/koperasi/server';
 import { readFile } from 'fs/promises';
 import { extname } from 'path';
@@ -26,6 +26,15 @@ const FIELD: Record<string, string> = {
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const ctx = await getAuthContext();
   if (!ctx) return new Response('Unauthorized', { status: 401 });
+  // Gerbang modul Bab 8 Fase 7: foto KTP/anggota adalah data sensitif
+  // Koperasi — butuh akses modul (READ). Tanpa try/catch di handler ini,
+  // Response 403 dari gerbang dikembalikan eksplisit.
+  try {
+    await requireModularAccess(ctx, 'koperasi', 'READ');
+  } catch (e) {
+    if (e instanceof Response) return e;
+    throw e;
+  }
   const type = new URL(req.url).searchParams.get('type') ?? '';
   const field = FIELD[type];
   if (!field) return new Response('Not found', { status: 404 });

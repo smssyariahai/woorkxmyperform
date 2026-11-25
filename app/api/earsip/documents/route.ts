@@ -17,6 +17,8 @@ import {
   canAccessConfidential,
   confidentialWhere,
   formatFileSize,
+  hydrateArchiveCategories,
+  hydrateArchiveDocuments,
   listEarsipUploaders,
   mapArchiveCategory,
   mapArchiveDocument,
@@ -98,9 +100,13 @@ export async function GET(req: Request) {
       }),
       listEarsipUploaders(ctx.organizationId),
     ]);
+    const [hydratedRows, hydratedCategories] = await Promise.all([
+      hydrateArchiveDocuments(rows),
+      hydrateArchiveCategories(categories),
+    ]);
     return apiOk({
-      documents: rows.map((r) => mapArchiveDocument(r as never)),
-      categories: categories.map((c) => mapArchiveCategory(c as never)),
+      documents: hydratedRows.map((r) => mapArchiveDocument(r as never)),
+      categories: hydratedCategories.map((c) => mapArchiveCategory(c as never)),
       uploaders,
       total,
       page,
@@ -191,7 +197,8 @@ export async function POST(req: Request) {
       description: `${ctx.name} mengunggah dokumen arsip "${title}" (kategori ${category.name}, ${file.name}, ${formatFileSize(buffer.length)})`,
       ipAddress: getClientIp(req),
     });
-    return apiOk(mapArchiveDocument(saved as never), 201);
+    const [hydrated] = await hydrateArchiveDocuments([saved]);
+    return apiOk(mapArchiveDocument(hydrated as never), 201);
   } catch (e: unknown) {
     if (e instanceof Response) return e;
     return apiErr('Gagal mengunggah dokumen arsip.', 500);

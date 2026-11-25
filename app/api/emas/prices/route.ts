@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import {
   ALL_GOLD_SOURCES,
@@ -28,6 +28,7 @@ function mapHistoryRow(r: any) {
 export async function GET() {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'emas', 'READ');
     const rows = await prisma.goldPriceHistory.findMany({
       where: { organizationId: ctx.organizationId },
       orderBy: { priceDate: 'desc' },
@@ -48,6 +49,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'emas', 'WRITE');
     const b = await req.json().catch(() => ({}));
 
     if (b.action === 'remove-type') {
@@ -165,6 +167,7 @@ export async function POST(req: Request) {
 export async function DELETE(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'emas', 'WRITE');
     const { searchParams } = new URL(req.url);
     const date = String(searchParams.get('date') || '').slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {

@@ -18,15 +18,25 @@ export async function GET(req: Request) {
     if (status) where.status = status;
     if (mine) where.assignedToId = ctx.userId;
 
-    const items = await prisma.followUp.findMany({
+    // FollowUp TIDAK punya relasi `assignedTo` di tenant client — ambil
+    // dari mirror User lalu gabung (pola baku Lapisan F).
+    const rows = await prisma.followUp.findMany({
       where,
       include: {
         customer: { select: { id: true, name: true, phone: true } },
-        assignedTo: { select: { id: true, name: true } },
       },
       orderBy: { scheduledAt: 'asc' },
       take: 100,
     });
+    const assigneeIds = [...new Set(rows.map((f) => f.assignedToId).filter((id): id is string => !!id))];
+    const assignees = assigneeIds.length
+      ? await prisma.user.findMany({ where: { id: { in: assigneeIds } }, select: { id: true, name: true } })
+      : [];
+    const byId = new Map(assignees.map((u) => [u.id, u]));
+    const items = rows.map((f) => ({
+      ...f,
+      assignedTo: f.assignedToId ? byId.get(f.assignedToId) ?? null : null,
+    }));
     return apiOk(items);
   } catch (e: any) {
     if (e instanceof Response) return e;
@@ -57,9 +67,13 @@ export async function POST(req: Request) {
       },
       include: {
         customer: { select: { id: true, name: true } },
-        assignedTo: { select: { id: true, name: true } },
       },
     });
+    // FollowUp TIDAK punya relasi `assignedTo` di tenant client — ambil
+    // dari mirror User (pola baku Lapisan F).
+    const assignee = fu.assignedToId
+      ? await prisma.user.findUnique({ where: { id: fu.assignedToId }, select: { id: true, name: true } })
+      : null;
 
     await prisma.customer.update({
       where: { id: customer.id },
@@ -82,7 +96,7 @@ export async function POST(req: Request) {
       description: `Menjadwalkan follow up ${customer.name}`,
       ipAddress: getClientIp(req),
     });
-    return apiOk(fu, 201);
+    return apiOk({ ...fu, assignedTo: assignee ?? null }, 201);
   } catch (e: any) {
     if (e instanceof Response) return e;
     return apiErr('Gagal membuat follow up.', 500);

@@ -5,7 +5,7 @@
 // setting 'kirim_json' (backup menyimpannya per user di profile).
 // GET terbuka untuk semua user login org; POST admin-only
 // (OWNER/ADMIN/isSuperAdmin, pola isTalAdmin lib/tal/server.ts).
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import {
   getCabangList,
@@ -23,6 +23,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(_req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'koperasi', 'READ');
     const [kirimJson, cabang] = await Promise.all([
       getKirimJsonSetting(ctx.organizationId),
       getCabangList(ctx.organizationId),
@@ -42,6 +43,7 @@ export async function GET(_req: Request) {
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'koperasi', 'WRITE');
     if (!isKoperasiAdmin(ctx)) {
       return apiErr('Hanya admin kantor yang dapat mengubah pengaturan koperasi.', 403);
     }

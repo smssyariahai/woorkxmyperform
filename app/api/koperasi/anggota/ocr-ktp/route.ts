@@ -4,14 +4,15 @@
 // modul API keys baru ada di Gelombang 6, jadi OCR TIDAK BISA jalan
 // sekarang. Endpoint ini wajib ada dan selalu menjawab configured:false;
 // tidak memanggil layanan eksternal apa pun.
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(_req: Request) {
   try {
-    await requireAuth();
+    const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'koperasi', 'WRITE');
     return apiOk({
       configured: false,
       message:

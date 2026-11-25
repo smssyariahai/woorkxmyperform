@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -26,6 +26,7 @@ function mapSimulation(r: any) {
 export async function GET(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'emas', 'READ');
     const { searchParams } = new URL(req.url);
     const type = searchParams.get('type') || '';
     const rows = await prisma.simulation.findMany({
@@ -49,6 +50,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'emas', 'WRITE');
     const b = await req.json().catch(() => ({}));
     if (!b.name) return apiErr('Nama simulasi wajib diisi.', 400);
     const data = {

@@ -1,4 +1,7 @@
-import { prisma } from '@/lib/db';
+// EsignProfile adalah model platform global (sengaja lintas org —
+// signature + PIN milik user, bukan milik tenant) dan TIDAK ADA di
+// skema tenant: query ke sini harus lewat legacyPrisma.
+import { legacyPrisma as prisma } from '@/lib/db';
 import { requireAuth } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { audit, getClientIp } from '@/lib/audit';

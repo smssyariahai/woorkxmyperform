@@ -9,6 +9,7 @@ import { apiOk, apiErr } from '@/lib/utils';
 import { audit, getClientIp } from '@/lib/audit';
 import {
   archiveCategoryInclude,
+  hydrateArchiveCategories,
   isCategoryDescendant,
   mapArchiveCategory,
   parseCategoryUpdate,
@@ -57,7 +58,8 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
       description: `${ctx.name} mengubah kategori arsip "${updated.name}"`,
       ipAddress: getClientIp(req),
     });
-    return apiOk(mapArchiveCategory(updated as never));
+    const [hydrated] = await hydrateArchiveCategories([updated]);
+    return apiOk(mapArchiveCategory(hydrated as never));
   } catch (e: unknown) {
     if (e instanceof Response) return e;
     return apiErr('Gagal mengubah kategori arsip.', 500);

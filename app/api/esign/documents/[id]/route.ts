@@ -17,11 +17,9 @@ async function findOne(ctx: { organizationId: string }, id: string) {
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   try {
     const ctx = await requirePermission('ESIGN_VIEW');
-    const item = await prisma.esignDocument.findFirst({
+    const row = await prisma.esignDocument.findFirst({
       where: { id: params.id, organizationId: ctx.organizationId },
       include: {
-        createdBy: { select: { id: true, name: true } },
-        approver: { select: { id: true, name: true } },
         // Token akses signer TIDAK dikembalikan di detail (kredensial akses
         // tautan sign — hanya pemegang tautan yang boleh memakainya).
         signers: {
@@ -39,7 +37,18 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
         auditLogs: { orderBy: { createdAt: 'desc' }, take: 50 },
       },
     });
-    if (!item) return apiErr('Dokumen tidak ditemukan.', 404);
+    if (!row) return apiErr('Dokumen tidak ditemukan.', 404);
+    // EsignDocument TIDAK punya relasi `createdBy`/`approver` di tenant
+    // client — ambil dari mirror User (Lapisan F).
+    const [createdByUser, approverUser] = await Promise.all([
+      row.createdById
+        ? prisma.user.findUnique({ where: { id: row.createdById }, select: { id: true, name: true } })
+        : Promise.resolve(null),
+      row.approverId
+        ? prisma.user.findUnique({ where: { id: row.approverId }, select: { id: true, name: true } })
+        : Promise.resolve(null),
+    ]);
+    const item = { ...row, createdBy: createdByUser, approver: approverUser };
     // Token milik viewer sendiri (bila ia penandatangan dokumen ini) —
     // token signer LAIN tidak pernah dikembalikan (lihat select di atas).
     // mySignToken hanya diisi bila sekarang memang gilirannya, agar token

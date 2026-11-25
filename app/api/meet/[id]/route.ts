@@ -11,6 +11,7 @@ import { apiOk, apiErr } from '@/lib/utils';
 import { audit } from '@/lib/audit';
 import {
   MEETING_TYPES,
+  attachMeetingUsers,
   canManageMeeting,
   getMeetingSetting,
   hashMeetingPassword,
@@ -18,6 +19,7 @@ import {
   loadMeetingForView,
   mapMeeting,
   meetRoomLink,
+  meetingInclude,
   notifyMeetingParticipants,
   revokeAllGuestTokens,
   userCanManageMeet,
@@ -119,22 +121,12 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     if (d.clearPassword) data.password = null;
     else if (d.password) data.password = await hashMeetingPassword(d.password);
 
-    const updated = await prisma.meeting.update({
+    const updatedRow = await prisma.meeting.update({
       where: { id: meeting.id },
       data: data as never,
-      include: {
-        host: { select: { id: true, name: true, email: true, avatar: true } },
-        participants: {
-          include: {
-            user: { select: { id: true, name: true, email: true, avatar: true } },
-            guestToken: {
-              select: { accessToken: true, tokenExpiresAt: true, revokedAt: true, scope: true },
-            },
-          },
-        },
-        _count: { select: { agendaItems: true, notes: true, chatMessages: true, recordings: true } },
-      },
+      include: meetingInclude,
     });
+    const [updated] = await attachMeetingUsers([updatedRow]);
 
     if (scheduleChanged) {
       const when = startsAt.toLocaleString('id-ID', {
@@ -177,22 +169,12 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     if (meeting.status === 'COMPLETED') {
       return apiErr('Meeting yang sudah selesai tidak dapat dibatalkan.', 400);
     }
-    const cancelled = await prisma.meeting.update({
+    const cancelledRow = await prisma.meeting.update({
       where: { id: meeting.id },
       data: { status: 'CANCELLED' },
-      include: {
-        host: { select: { id: true, name: true, email: true, avatar: true } },
-        participants: {
-          include: {
-            user: { select: { id: true, name: true, email: true, avatar: true } },
-            guestToken: {
-              select: { accessToken: true, tokenExpiresAt: true, revokedAt: true, scope: true },
-            },
-          },
-        },
-        _count: { select: { agendaItems: true, notes: true, chatMessages: true, recordings: true } },
-      },
+      include: meetingInclude,
     });
+    const [cancelled] = await attachMeetingUsers([cancelledRow]);
     await revokeAllGuestTokens(meeting.id).catch(() => {});
     await notifyMeetingParticipants(
       { id: meeting.id, organizationId: ctx.organizationId, title: meeting.title },

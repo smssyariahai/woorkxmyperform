@@ -5,7 +5,7 @@
 // GET terbuka untuk semua user login org (dibutuhkan modal kirim);
 // tulis (POST/PUT/DELETE) admin-only (OWNER/ADMIN/isSuperAdmin).
 // Bila entri yang dihapus adalah defaultUrlId, default dikosongkan.
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import {
   getKirimJsonSetting,
@@ -21,6 +21,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(_req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'koperasi', 'READ');
     const setting = await getKirimJsonSetting(ctx.organizationId);
     return apiOk({ urls: setting.urls, defaultUrlId: setting.defaultUrlId });
   } catch (e: any) {
@@ -33,6 +34,7 @@ export async function GET(_req: Request) {
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'koperasi', 'WRITE');
     if (!isKoperasiAdmin(ctx)) {
       return apiErr('Hanya admin kantor yang dapat mengubah daftar URL.', 403);
     }
@@ -56,6 +58,7 @@ export async function POST(req: Request) {
 export async function PUT(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'koperasi', 'WRITE');
     if (!isKoperasiAdmin(ctx)) {
       return apiErr('Hanya admin kantor yang dapat mengubah daftar URL.', 403);
     }
@@ -83,6 +86,7 @@ export async function PUT(req: Request) {
 export async function DELETE(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'koperasi', 'WRITE');
     if (!isKoperasiAdmin(ctx)) {
       return apiErr('Hanya admin kantor yang dapat menghapus URL.', 403);
     }

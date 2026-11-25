@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { defaultSettingsData } from '@/lib/emas/defaultSettings';
 
@@ -12,6 +12,7 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'emas', 'READ');
     const rows = await prisma.goldSetting.findMany({
       where: { organizationId: ctx.organizationId },
     });
@@ -28,6 +29,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'emas', 'WRITE');
     const b = await req.json().catch(() => ({}));
     const key = String(b.key || '').trim();
     if (!key) return apiErr('Key pengaturan wajib diisi.', 400);

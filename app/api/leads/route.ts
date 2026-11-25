@@ -20,13 +20,23 @@ export async function GET(req: Request) {
           where: ownerId ? { ownerId } : undefined,
           include: {
             customer: { select: { id: true, name: true, company: true, phone: true } },
-            owner: { select: { id: true, name: true } },
           },
           orderBy: { updatedAt: 'desc' },
         },
       },
     });
-    return apiOk(stages);
+    // Lead TIDAK punya relasi `owner` di tenant client — ambil dari mirror
+    // User (Lapisan F).
+    const ownerIds = [...new Set(stages.flatMap((s) => s.leads.map((l) => l.ownerId)).filter((id): id is string => !!id))];
+    const owners = ownerIds.length
+      ? await prisma.user.findMany({ where: { id: { in: ownerIds } }, select: { id: true, name: true } })
+      : [];
+    const byId = new Map(owners.map((u) => [u.id, u]));
+    const stagesWithOwners = stages.map((s) => ({
+      ...s,
+      leads: s.leads.map((l) => ({ ...l, owner: l.ownerId ? byId.get(l.ownerId) ?? null : null })),
+    }));
+    return apiOk(stagesWithOwners);
   } catch (e: any) {
     if (e instanceof Response) return e;
     return apiErr('Gagal memuat leads.', 500);

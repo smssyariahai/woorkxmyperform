@@ -3,7 +3,7 @@
 // org-scoped (backup tidak mengenal organisasi; WOORK memfilter
 // organizationId dari sesi).
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -11,6 +11,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'koperasi', 'READ');
     const nik = (new URL(req.url).searchParams.get('nik') ?? '').trim();
     if (!nik) return apiOk({ exists: false, anggota: null });
     const hit = await prisma.koperasiAnggota.findFirst({

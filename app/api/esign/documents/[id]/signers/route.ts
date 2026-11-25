@@ -36,11 +36,17 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const membership = await prisma.membership.findFirst({
       where: { userId: d.userId, organizationId: ctx.organizationId, status: 'ACTIVE' },
       include: {
-        user: { select: { id: true, name: true, email: true, phone: true } },
         department: { select: { name: true } },
       },
     });
     if (!membership) return apiErr('Pengguna bukan anggota aktif kantor ini.', 422);
+    // Membership TIDAK punya relasi `user` di tenant client — ambil dari
+    // mirror User (Lapisan F).
+    const memberUser = await prisma.user.findUnique({
+      where: { id: d.userId },
+      select: { id: true, name: true, email: true, phone: true },
+    });
+    if (!memberUser) return apiErr('Pengguna bukan anggota aktif kantor ini.', 422);
 
     const dup = await prisma.esignSigner.findFirst({
       where: { documentId: doc.id, userId: d.userId },
@@ -63,7 +69,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const signingGroup = d.signingGroup ?? (maxGroup._max.signingGroup ?? 0) + 1;
 
     const emp = await prisma.hrEmployee.findFirst({
-      where: { organizationId: ctx.organizationId, email: membership.user.email },
+      where: { organizationId: ctx.organizationId, email: memberUser.email },
       select: { position: true, department: true },
     });
 
@@ -72,9 +78,9 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       data: {
         documentId: doc.id,
         userId: d.userId,
-        signerName: d.signerName?.trim() || membership.user.name,
-        signerEmail: d.signerEmail?.trim() || membership.user.email,
-        signerPhone: membership.user.phone,
+        signerName: d.signerName?.trim() || memberUser.name,
+        signerEmail: d.signerEmail?.trim() || memberUser.email,
+        signerPhone: memberUser.phone,
         signerPosition:
           d.signerPosition?.trim() || membership.jobTitle || emp?.position || null,
         signerDepartment:
@@ -106,7 +112,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       item: safe,
       // Peringatan (bukan error): tanpa nomor HP, signer tidak akan
       // menerima notifikasi WhatsApp E-Sign — hanya notifikasi in-app.
-      ...(membership.user.phone
+      ...(memberUser.phone
         ? {}
         : {
             warning:

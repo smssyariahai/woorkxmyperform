@@ -3,6 +3,7 @@ import { requireAuth } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import {
   announcementLink,
+  attachAuthor,
   mapAnnouncement,
   parseChannels,
   resolveRecipients,
@@ -14,7 +15,7 @@ import {
 } from '@/lib/pengumuman/preferences';
 import {
   MAX_EMAIL_RECIPIENTS,
-  isMailConfigured,
+  isSmtpConfigured,
   sendAnnouncementEmail,
 } from '@/lib/mailer';
 
@@ -34,7 +35,6 @@ export async function POST(
     const ctx = await requireAuth();
     const row = await prisma.announcement.findFirst({
       where: { id: params.id, organizationId: ctx.organizationId },
-      include: { author: { select: { name: true, email: true } } },
     });
     if (!row) return apiErr('Pengumuman tidak ditemukan.', 404);
     if (row.status === 'published') {
@@ -94,7 +94,6 @@ export async function POST(
           emailFailed: 0,
           emailError: null,
         },
-        include: { author: { select: { name: true, email: true } } },
       }),
       ...(appRecipients.length > 0
         ? [
@@ -120,10 +119,10 @@ export async function POST(
       if (emailRecipients.length === 0) {
         emailStatus = 'skipped';
         emailError = 'Tidak ada penerima email.';
-      } else if (!isMailConfigured()) {
+      } else if (!(await isSmtpConfigured())) {
         emailStatus = 'not_configured';
         emailError =
-          'SMTP belum dikonfigurasi. Isi SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS di .env.';
+          'SMTP belum dikonfigurasi. Isi pengaturan SMTP di Pengaturan Sistem (/admin/pengaturan).';
       } else {
         const link = announcementLink(row.id);
         for (const m of emailRecipients) {
@@ -159,10 +158,9 @@ export async function POST(
 
     const fresh = await prisma.announcement.findUnique({
       where: { id: row.id },
-      include: { author: { select: { name: true, email: true } } },
     });
     return apiOk({
-      announcement: mapAnnouncement(fresh!),
+      announcement: mapAnnouncement(await attachAuthor(fresh!)),
       inAppSent: appRecipients.length,
       email: { status: emailStatus, sent: emailSent, failed: emailFailed },
       recipients: recipients.length,

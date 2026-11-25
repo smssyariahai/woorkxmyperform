@@ -15,23 +15,34 @@ export async function GET(req: Request) {
     const q = new URL(req.url).searchParams.get('q')?.trim() ?? '';
     if (q.length < 2) return apiOk({ items: [] });
 
-    const memberships = await prisma.membership.findMany({
+    // Cari user tidak bisa memakai filter relasi `user` pada Membership di
+    // tenant client — selesaikan dulu user yang cocok, lalu ambil membership
+    // mereka dengan `userId in [...]` (Lapisan F).
+    const users = await prisma.user.findMany({
+      where: {
+        OR: [
+          { name: { contains: q, mode: 'insensitive' } },
+          { email: { contains: q, mode: 'insensitive' } },
+        ],
+      },
+      select: { id: true, name: true, email: true, phone: true },
+      take: 100,
+    });
+    const membershipRows = await prisma.membership.findMany({
       where: {
         organizationId: ctx.organizationId,
         status: 'ACTIVE',
-        user: {
-          OR: [
-            { name: { contains: q, mode: 'insensitive' } },
-            { email: { contains: q, mode: 'insensitive' } },
-          ],
-        },
+        userId: { in: users.map((u) => u.id) },
       },
       include: {
-        user: { select: { id: true, name: true, email: true, phone: true } },
         department: { select: { name: true } },
       },
       take: 20,
     });
+    const byId = new Map(users.map((u) => [u.id, u]));
+    const memberships = membershipRows
+      .filter((m) => byId.has(m.userId))
+      .map((m) => ({ ...m, user: byId.get(m.userId)! }));
 
     const employees = await prisma.hrEmployee.findMany({
       where: {
