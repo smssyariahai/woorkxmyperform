@@ -7,7 +7,7 @@
 // Tulis (kunci/buka/reset ke otomatis): admin-only (§5.3) + TalAuditLog
 // (lock_month_lock / unlock_month_lock / reset_month_lock_auto).
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { talIsHrAdmin, talWriteAuditLog } from '@/lib/tal/team';
 
@@ -37,6 +37,7 @@ const mapLock = (r: any) => ({
 export async function GET(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'READ');
     const url = new URL(req.url);
     const mk = parseMonthKey(url.searchParams.get('monthKey'));
     const admin = talIsHrAdmin(ctx);
@@ -63,6 +64,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'WRITE');
     if (!talIsHrAdmin(ctx)) return apiErr('Hanya Administrator yang boleh mengatur kunci bulan.', 403);
     const b = (await req.json().catch(() => ({}))) as any;
     const mk = parseMonthKey(b.monthKey || (b.year && b.month ? `${b.year}-${String(b.month).padStart(2, '0')}` : null));
@@ -101,6 +103,7 @@ export async function POST(req: Request) {
 export async function DELETE(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'WRITE');
     if (!talIsHrAdmin(ctx)) return apiErr('Hanya Administrator yang boleh mereset kunci bulan.', 403);
     const url = new URL(req.url);
     const mk = parseMonthKey(url.searchParams.get('monthKey'));

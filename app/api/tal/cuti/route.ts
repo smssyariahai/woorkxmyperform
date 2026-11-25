@@ -6,7 +6,7 @@
 // Varian admin (?all=1): gate §5.2. Cuti orang lain hanya bisa ditulis admin.
 // Upsert unik [org, user, cutiDate].
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { talIsHrAdmin } from '@/lib/tal/team';
 
@@ -27,6 +27,7 @@ const mapCuti = (r: any) => ({
 export async function GET(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'READ');
     const url = new URL(req.url);
     const date = url.searchParams.get('date') || undefined;
     const admin = talIsHrAdmin(ctx);
@@ -55,6 +56,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'WRITE');
     const b = (await req.json().catch(() => ({}))) as any;
     const date = String(b.date || '').trim();
     if (!DATE_RE.test(date)) return apiErr('date wajib diisi (format YYYY-MM-DD).', 400);
@@ -87,6 +89,7 @@ export async function POST(req: Request) {
 export async function DELETE(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'WRITE');
     const url = new URL(req.url);
     const date = url.searchParams.get('date') || '';
     if (!DATE_RE.test(date)) return apiErr('date wajib diisi (format YYYY-MM-DD).', 400);

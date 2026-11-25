@@ -10,7 +10,7 @@
 // 60% harian). scopeKey lock dicocokkan dua bentuk ("2026-09-07" dan
 // "daily_2026-09-07") karena backup memakai keduanya.
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import {
   talIsHrAdmin,
@@ -61,6 +61,7 @@ function lockScores(lock: any | undefined, fallback: { plan: number; realisasi: 
 export async function GET(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'READ');
     if (!talIsHrAdmin(ctx)) {
       return apiErr('Anda tidak memiliki akses melihat TAL karyawan lain.', 403);
     }

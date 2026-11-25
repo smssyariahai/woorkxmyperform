@@ -45,13 +45,25 @@ export async function PUT(req: Request) {
     if (!!tSite !== !!tSec) {
       return apiErr('Turnstile Site Key dan Secret Key harus diisi keduanya atau dikosongkan keduanya.');
     }
+    // Validasi ringan SMTP: Host + User + Password harus terisi ketiganya
+    // atau dikosongkan ketiganya; Port harus angka bila diisi.
+    const sHost = values['smtp.host'] ?? '';
+    const sUser = values['smtp.user'] ?? '';
+    const sPass = values['smtp.pass'] ?? '';
+    if (!!sHost !== !!sUser || !!sHost !== !!sPass) {
+      return apiErr('SMTP Host, User, dan Password harus diisi ketiganya atau dikosongkan ketiganya.');
+    }
+    const sPort = values['smtp.port'] ?? '';
+    if (sPort && !/^\d+$/.test(sPort)) {
+      return apiErr('SMTP Port harus berupa angka (mis. 587).');
+    }
     await setSystemSettings(values as any);
     await audit({
       organizationId: ctx.organizationId,
       userId: ctx.userId,
       action: 'UPDATE_SYSTEM_SETTINGS',
       module: 'SETTINGS',
-      description: 'Administrator Pusat memperbarui pengaturan sistem (Google OAuth / Turnstile)',
+      description: 'Administrator Pusat memperbarui pengaturan sistem (Google OAuth / Turnstile / SMTP)',
       ipAddress: getClientIp(req),
     });
     return apiOk({ ok: true });

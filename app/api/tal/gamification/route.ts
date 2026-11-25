@@ -1,4 +1,4 @@
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { evaluateUserGamification } from '@/lib/tal/gamification';
 
@@ -15,6 +15,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'READ');
     const url = new URL(req.url);
     const yearRaw = Number(url.searchParams.get('year') || new Date().getFullYear());
     const seasonYear = Number.isFinite(yearRaw) ? yearRaw : new Date().getFullYear();

@@ -7,7 +7,7 @@
 // Aksi batch: admin-only (§5.2/§5.3) + TalAuditLog (unlock_plans /
 // reset_reports) dengan alasan wajib.
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { talIsHrAdmin, talWriteAuditLog } from '@/lib/tal/team';
 
@@ -29,6 +29,7 @@ const mapReport = (r: any) => ({
 export async function GET(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'READ');
     const url = new URL(req.url);
 
     // Daftar audit log TAL (admin-only)
@@ -69,6 +70,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'WRITE');
     if (!talIsHrAdmin(ctx)) return apiErr('Hanya Administrator yang boleh melakukan aksi batch kunci TAL.', 403);
     const b = (await req.json().catch(() => ({}))) as any;
     const ids = Array.isArray(b.ids) ? b.ids.map(String).filter(Boolean) : [];

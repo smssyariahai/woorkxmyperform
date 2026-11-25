@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/db';
 import type { Prisma } from '@prisma/client';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import {
   isTalAdmin,
@@ -22,6 +22,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'READ');
     const url = new URL(req.url);
     const yearRaw = Number(url.searchParams.get('year') || new Date().getFullYear());
     const seasonYear = Number.isFinite(yearRaw) ? yearRaw : new Date().getFullYear();
@@ -46,6 +47,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'WRITE');
     if (!isTalAdmin(ctx)) {
       return apiErr('Anda tidak memiliki akses mengelola badge TAL.', 403);
     }

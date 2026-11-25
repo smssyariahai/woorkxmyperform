@@ -9,7 +9,7 @@
 // Daftar default = DEFAULT_INDONESIAN_HOLIDAYS backup
 // (src/utils/talDateUtils.ts:432, 2025-2027).
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { talIsHrAdmin, talWriteAuditLog } from '@/lib/tal/team';
 
@@ -78,6 +78,7 @@ const mapHoliday = (r: any) => {
 export async function GET(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'READ');
     const url = new URL(req.url);
     const year = Number(url.searchParams.get('year') || 0) || undefined;
     const where: Record<string, unknown> = { organizationId: ctx.organizationId };
@@ -101,6 +102,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'WRITE');
     if (!talIsHrAdmin(ctx)) return apiErr('Hanya Administrator yang boleh mengatur hari libur.', 403);
     const b = (await req.json().catch(() => ({}))) as any;
 
@@ -185,6 +187,7 @@ export async function POST(req: Request) {
 export async function DELETE(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'WRITE');
     if (!talIsHrAdmin(ctx)) return apiErr('Hanya Administrator yang boleh menghapus hari libur.', 403);
     const url = new URL(req.url);
     const id = url.searchParams.get('id') || '';

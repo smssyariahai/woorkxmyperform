@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import {
   getDeadlineSettings,
@@ -17,6 +17,7 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'READ');
     const settings = await getDeadlineSettings(ctx.organizationId);
     return apiOk({ settings });
   } catch (e: any) {
@@ -29,6 +30,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'WRITE');
     if (!isTalAdmin(ctx)) {
       return apiErr('Hanya Administrator yang boleh mengubah pengaturan deadline TAL.', 403);
     }
