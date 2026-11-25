@@ -10,11 +10,12 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     const ctx = await requireAuth();
-    const [org, user, sessions] = await Promise.all([
-      prisma.organization.findUnique({
-        where: { id: ctx.organizationId },
-        include: { subscription: true },
-      }),
+    // Organization mirror di tenant client TIDAK punya relasi `subscription`
+    // — langganan diambil terpisah lalu ditempel dengan bentuk yang sama
+    // (`subscription: {...} | null`).
+    const [orgRow, subscription, user, sessions] = await Promise.all([
+      prisma.organization.findUnique({ where: { id: ctx.organizationId } }),
+      prisma.subscription.findUnique({ where: { organizationId: ctx.organizationId } }),
       prisma.user.findUnique({
         where: { id: ctx.userId },
         select: { id: true, name: true, email: true, phone: true, avatar: true },
@@ -25,6 +26,7 @@ export async function GET() {
         take: 10,
       }),
     ]);
+    const org = orgRow ? { ...orgRow, subscription } : null;
     return apiOk({ org, user, role: ctx.role, sessions });
   } catch (e: any) {
     if (e instanceof Response) return e;

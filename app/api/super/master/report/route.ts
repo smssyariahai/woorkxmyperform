@@ -1,4 +1,6 @@
-import { prisma } from '@/lib/db';
+// Rute super-admin / platform (P2-2 Phase 4): baca data platform dan legacy eksplisit.
+// JANGAN pakai proxy `prisma` — rapuh bila super admin suatu hari punya sesi tenant.
+import { legacyPrisma as prisma } from '@/lib/db';
 import { requirePlatformPermission } from '@/lib/auth-helpers';
 import { apiErr } from '@/lib/utils';
 
