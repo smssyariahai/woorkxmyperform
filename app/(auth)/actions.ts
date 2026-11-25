@@ -1,29 +1,18 @@
 'use server';
 
 import { randomUUID } from 'node:crypto';
+import { redirect } from 'next/navigation';
 import { prisma } from '@/lib/db';
 import { hashPassword } from '@/lib/password';
-import { seedOrgDefaults } from '@/lib/auth';
 import { audit } from '@/lib/audit';
-import { slugify } from '@/lib/utils';
 import { verifyTurnstile } from '@/lib/system-settings';
-import { trialEndsAtFromNow } from '@/lib/trial';
+import { registerCompany } from '@/lib/tenant/registration';
 import {
   registerSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
   type RegisterInput,
 } from '@/lib/validation';
-
-async function uniqueSlug(base: string): Promise<string> {
-  let slug = slugify(base) || 'workspace';
-  for (let i = 0; i < 5; i++) {
-    const exists = await prisma.organization.findUnique({ where: { slug } });
-    if (!exists) return slug;
-    slug = `${slugify(base)}-${randomUUID().slice(0, 6)}`;
-  }
-  return `${slugify(base)}-${Date.now().toString(36)}`;
-}
 
 export async function registerAction(input: RegisterInput, turnstileToken?: string) {
   if (!(await verifyTurnstile(turnstileToken))) {
@@ -33,47 +22,54 @@ export async function registerAction(input: RegisterInput, turnstileToken?: stri
   if (!parsed.success) {
     return { ok: false as const, errors: parsed.error.flatten().fieldErrors, message: 'Periksa kembali form Anda.' };
   }
-  const { name, company, email, phone, password } = parsed.data;
+  const { name, company, email, password } = parsed.data;
   const normalizedEmail = email.toLowerCase().trim();
 
-  const existing = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-  if (existing) {
-    return { ok: false as const, message: 'Email sudah terdaftar. Silakan masuk.' };
+  // LAPISAN B: registrasi self-service kini lewat provisioning engine
+  // (database-per-tenant). TIDAK ADA lagi tulis ke woork_saas di sini:
+  // tidak ada Organization/Subscription/seedOrgDefaults/User/Membership
+  // legacy. Slug dicek unik di Tenant.companySlug di dalam registerCompany
+  // (uniqueSlug lama yang mengecek Organization woork_saas sudah dihapus —
+  // ia hanya dipakai di sini, bukan di tempat lain).
+  // CATATAN: `phone` dari form masih divalidasi schema, tapi tidak lagi
+  // disimpan di mana pun — PlatformUser (master) tidak punya kolom phone.
+  let result: { tenantId: string; tenantCode: string; platformUserId: string };
+  try {
+    result = await registerCompany({
+      companyName: company,
+      adminName: name.trim(),
+      adminEmail: normalizedEmail,
+      adminPassword: password,
+    });
+  } catch (e: any) {
+    const msg = String(e?.message ?? '');
+    if (msg.includes('slug sudah dipakai')) {
+      return { ok: false as const, message: 'Nama perusahaan sudah dipakai. Silakan pilih nama lain.' };
+    }
+    if (msg.includes('email sudah terdaftar')) {
+      return { ok: false as const, message: 'Email sudah terdaftar. Silakan masuk.' };
+    }
+    // Pesan validasi registerCompany sudah ramah — teruskan apa adanya.
+    if (
+      msg.startsWith('Nama perusahaan') ||
+      msg.startsWith('Nama admin') ||
+      msg.startsWith('format email') ||
+      msg.startsWith('Password minimal') ||
+      msg.startsWith('slug tidak valid') ||
+      msg.startsWith('Terjadi bentrok kode tenant')
+    ) {
+      return { ok: false as const, message: msg };
+    }
+    console.error('[registerAction] registrasi gagal:', e);
+    return { ok: false as const, message: 'Pendaftaran gagal. Silakan coba lagi.' };
   }
 
-  const slug = await uniqueSlug(company);
-  const org = await prisma.organization.create({
-    data: {
-      name: company,
-      slug,
-      subscription: { create: { plan: 'FREE', status: 'ACTIVE', trialEndsAt: trialEndsAtFromNow() } },
-    },
-  });
-  await seedOrgDefaults(org.id);
-
-  const user = await prisma.user.create({
-    data: {
-      name: name.trim(),
-      email: normalizedEmail,
-      password: await hashPassword(password),
-      phone: phone.trim(),
-    },
-  });
-  const role = await prisma.role.findFirst({
-    where: { organizationId: org.id, name: 'OWNER' },
-  });
-  await prisma.membership.create({
-    data: { userId: user.id, organizationId: org.id, roleId: role!.id },
-  });
-  await audit({
-    organizationId: org.id,
-    userId: user.id,
-    action: 'REGISTER',
-    module: 'AUTH',
-    description: `${name} membuat workspace ${company}`,
-  });
-
-  return { ok: true as const, email: normalizedEmail };
+  // Sukses: provisioning database tenant sedang berjalan async.
+  // BUKAN auto-login — arahkan ke halaman status provisioning; halaman itu
+  // yang mengarahkan ke /login?tenant=<code> setelah database ACTIVE.
+  // redirect() melempar NEXT_REDIRECT; server action yang dipanggil dari
+  // client component akan menavigasi browser ke URL tersebut.
+  redirect(`/provisioning?tenant=${result.tenantCode}`);
 }
 
 export async function forgotPasswordAction(email: string, turnstileToken?: string) {

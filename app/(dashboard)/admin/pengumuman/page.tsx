@@ -7,11 +7,15 @@ export const metadata = { title: 'Pengumuman Platform — Administrator Pusat' }
 export default async function AdminPengumumanPage() {
   const ctx = await getAuthContext();
   if (!ctx) redirect('/login');
-  // Super admin lolos penuh; platform admin wajib izin kelola kantor
-  // (PLATFORM_TENANTS_MANAGE) — pola yang sama dengan /admin/offices/new.
+  // Super admin lolos penuh; platform admin wajib izin pengumuman platform
+  // (VIEW atau MANAGE) — API-nya memakai permission yang sama.
   if (!ctx.isSuperAdmin) {
     const pp = await getUserPlatformPermissions(ctx);
-    if (!pp.has('PLATFORM_TENANTS_MANAGE')) redirect('/dashboard');
+    if (
+      !pp.has('PLATFORM_ANNOUNCEMENTS_VIEW') &&
+      !pp.has('PLATFORM_ANNOUNCEMENTS_MANAGE')
+    )
+      redirect('/dashboard');
   }
   return <AdminPengumumanClient />;
 }

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import Link from 'next/link';
@@ -15,7 +15,6 @@ import { TurnstileWidget } from '@/components/auth/TurnstileWidget';
 import { useAuthConfig } from '@/components/auth/useAuthConfig';
 
 export function AdminLoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get('callbackUrl') || '/admin/dashboard';
   const notice = searchParams.get('notice');
@@ -55,8 +54,10 @@ export function AdminLoginForm() {
       return;
     }
     toast.success('Selamat datang kembali!');
-    router.push(callbackUrl);
-    router.refresh();
+    // Navigasi PENUH (bukan router.push): cookie sesi yang baru dipasang
+    // dijamin dibaca segar oleh server — tidak ada sisa cache router /
+    // useSession lama yang membuat login terasa "tidak masuk".
+    window.location.href = callbackUrl;
   }
 
   return (

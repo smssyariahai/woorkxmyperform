@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { signIn } from 'next-auth/react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { signIn, getSession } from 'next-auth/react';
+import { useSearchParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import Link from 'next/link';
@@ -25,7 +25,6 @@ const OAUTH_ERRORS: Record<string, string> = {
 };
 
 export function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
   const oauthError = searchParams.get('error');
@@ -78,8 +77,23 @@ export function LoginForm() {
       return;
     }
     toast.success('Selamat datang kembali!');
-    router.push(callbackUrl);
-    router.refresh();
+    // LAPISAN D: tenant yang belum ACTIVE (masih provisioning / gagal)
+    // diarahkan ke /provisioning, bukan ke dashboard. Status dibawa token
+    // dari authorize (kredensial). Bila status tidak ada di sesi (mis.
+    // login Google — tombol Google memakai redirect penuh), backstop root
+    // layout yang mengarahkan; karena itu di sini hanya redirect bila
+    // statusnya JELAS bukan ACTIVE.
+    const fresh = await getSession();
+    const tenantCode = (fresh?.user as any)?.tenantCode as string | undefined;
+    const tenantStatus = (fresh?.user as any)?.tenantStatus as string | undefined;
+    // Navigasi PENUH (bukan router.push): cookie sesi yang baru dipasang
+    // dijamin dibaca segar oleh server — tidak ada sisa cache router /
+    // useSession lama yang membuat login terasa "tidak masuk".
+    if (tenantCode && tenantStatus && tenantStatus !== 'ACTIVE') {
+      window.location.href = `/provisioning?tenant=${tenantCode}`;
+      return;
+    }
+    window.location.href = callbackUrl;
   }
 
   return (

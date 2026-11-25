@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { getAuthContext } from '@/lib/auth-helpers';
 import { Card, CardTitle, Badge, Avatar } from '@/components/ui/primitives';
+import { SubscriptionBanner } from '@/components/dashboard/SubscriptionBanner';
 import { ConversationChart, PipelineChart } from '@/components/dashboard/charts';
 import { timeAgo } from '@/lib/utils';
 import {
@@ -57,6 +58,8 @@ export default async function DashboardPage() {
           </Link>
         )}
       </div>
+
+      <SubscriptionBanner />
 
       {!stats ? (
         <Card>

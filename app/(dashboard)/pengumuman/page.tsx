@@ -759,6 +759,9 @@ function AnnouncementCard({
             <Badge tone={STATUS_TONE[a.status] ?? 'gray'}>
               {STATUS_LABEL[a.status]}
             </Badge>
+            {a.filters?.platform === true && (
+              <Badge tone="amber">Dari Administrator Pusat</Badge>
+            )}
             {a.priority !== 'normal' && (
               <Badge tone={PRIORITY_TONE[a.priority]}>
                 {a.priority === 'mendesak' ? (

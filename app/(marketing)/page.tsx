@@ -1,6 +1,12 @@
 import Link from 'next/link';
 import { Logo, Badge, Card, CardTitle, Avatar } from '@/components/ui/primitives';
 import SiteHeader from '@/components/layout/SiteHeader';
+import PricingCalculator, {
+  type CatalogModule,
+  type CatalogStorageTier,
+  type CatalogUserTier,
+  type PricingCatalog,
+} from '@/components/marketing/PricingCalculator';
 import {
   Inbox,
   Users,
@@ -15,7 +21,6 @@ import {
   ArrowRight,
   ArrowDown,
   ChevronDown,
-  Menu,
   Bot,
   GitBranch,
   Send,
@@ -24,15 +29,214 @@ import {
   Clock,
   ShieldCheck,
   Sparkles,
+  Layers,
+  FileCheck,
+  Handshake,
+  Coins,
+  MoonStar,
+  CalendarCheck,
+  Video,
+  PenLine,
+  Archive,
+  MapPin,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
 export const metadata = {
-  title: 'WOORK — Omnichannel CRM & Customer Management Platform',
+  title: 'WOORK — Platform Operasional Bisnis Terpadu',
   description:
-    'WOORK membantu tim mengelola WhatsApp, Instagram, Facebook, lead, follow up, dan customer relationship dalam satu workspace yang sederhana.',
+    'WOORK menyatukan CRM omnichannel (WhatsApp, Instagram, Facebook), HR, koperasi, emas, dan kantor virtual AI dalam satu workspace untuk bisnis Indonesia. Trial 30 hari gratis, tanpa kartu kredit.',
 };
 
+/* --------------------------- katalog: live + fallback --------------------------- */
+
+/**
+ * Katalog harga diambil live dari GET /api/public/pricing (sumber yang sama
+ * dengan formulir pendaftaran). Bila fetch gagal, dipakai FALLBACK_CATALOG —
+ * nilai yang sudah terverifikasi live dari API yang sama.
+ */
+const FALLBACK_CATALOG: PricingCatalog = {
+  userTiers: [
+    { id: 'fallback-u1', name: 'Sampai 10 pengguna', maxUsers: 10, monthlyPrice: 250000, yearlyPrice: 2500000, isCustomPrice: false, minStorageGb: 100 },
+    { id: 'fallback-u2', name: 'Sampai 25 pengguna', maxUsers: 25, monthlyPrice: 450000, yearlyPrice: 4500000, isCustomPrice: false, minStorageGb: 100 },
+    { id: 'fallback-u3', name: 'Sampai 50 pengguna', maxUsers: 50, monthlyPrice: 750000, yearlyPrice: 7500000, isCustomPrice: false, minStorageGb: 250 },
+    { id: 'fallback-u4', name: 'Sampai 100 pengguna', maxUsers: 100, monthlyPrice: 1250000, yearlyPrice: 12500000, isCustomPrice: false, minStorageGb: 250 },
+    { id: 'fallback-u5', name: 'Sampai 200 pengguna', maxUsers: 200, monthlyPrice: 2000000, yearlyPrice: 20000000, isCustomPrice: false, minStorageGb: 500 },
+    { id: 'fallback-u6', name: 'Sampai 500 pengguna', maxUsers: 500, monthlyPrice: 4000000, yearlyPrice: 40000000, isCustomPrice: false, minStorageGb: 1000 },
+    { id: 'fallback-u7', name: 'Di atas 500 pengguna', maxUsers: null, monthlyPrice: null, yearlyPrice: null, isCustomPrice: true, minStorageGb: 1000 },
+  ],
+  storageTiers: [
+    { id: 'fallback-s1', name: '100 GB', capacityGb: 100, monthlyPrice: 100000, yearlyPrice: 1000000, isCustomPrice: false },
+    { id: 'fallback-s2', name: '250 GB', capacityGb: 250, monthlyPrice: 200000, yearlyPrice: 2000000, isCustomPrice: false },
+    { id: 'fallback-s3', name: '500 GB', capacityGb: 500, monthlyPrice: 350000, yearlyPrice: 3500000, isCustomPrice: false },
+    { id: 'fallback-s4', name: '1 TB', capacityGb: 1000, monthlyPrice: 600000, yearlyPrice: 6000000, isCustomPrice: false },
+    { id: 'fallback-s5', name: '2 TB', capacityGb: 2000, monthlyPrice: 1000000, yearlyPrice: 10000000, isCustomPrice: false },
+    { id: 'fallback-s6', name: 'Di atas 2 TB', capacityGb: null, monthlyPrice: null, yearlyPrice: null, isCustomPrice: true },
+  ],
+  modules: [
+    { id: 'fallback-m1', moduleKey: 'tal', name: 'TAL', monthlyPrice: 300000, yearlyPrice: 3000000 },
+    { id: 'fallback-m2', moduleKey: 'koperasi', name: 'Koperasi Keanggotaan', monthlyPrice: 250000, yearlyPrice: 2500000 },
+    { id: 'fallback-m3', moduleKey: 'emas', name: 'Simulasi Emas', monthlyPrice: 250000, yearlyPrice: 2500000 },
+    { id: 'fallback-m4', moduleKey: 'islami', name: 'Ekosistem Islami', monthlyPrice: 100000, yearlyPrice: 1000000 },
+    { id: 'fallback-m5', moduleKey: 'kantor', name: 'AI Workspace', monthlyPrice: 150000, yearlyPrice: 1500000 },
+  ],
+  ppnRateBps: 1100,
+};
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null;
+}
+
+function toNum(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+function toStr(v: unknown): string | null {
+  return typeof v === 'string' ? v : null;
+}
+
+function parseCatalog(json: unknown): PricingCatalog | null {
+  if (!isRecord(json) || json.success !== true) return null;
+  const data = json.data;
+  if (!isRecord(data)) return null;
+
+  const userTiers: CatalogUserTier[] = [];
+  if (Array.isArray(data.userTiers)) {
+    for (const t of data.userTiers) {
+      if (!isRecord(t)) continue;
+      const id = toStr(t.id);
+      const name = toStr(t.name);
+      if (!id || !name) continue;
+      userTiers.push({
+        id,
+        name,
+        maxUsers: toNum(t.maxUsers),
+        monthlyPrice: toNum(t.monthlyPrice),
+        yearlyPrice: toNum(t.yearlyPrice),
+        isCustomPrice: t.isCustomPrice === true,
+        minStorageGb: toNum(t.minStorageGb) ?? 0,
+      });
+    }
+  }
+
+  const storageTiers: CatalogStorageTier[] = [];
+  if (Array.isArray(data.storageTiers)) {
+    for (const t of data.storageTiers) {
+      if (!isRecord(t)) continue;
+      const id = toStr(t.id);
+      const name = toStr(t.name);
+      if (!id || !name) continue;
+      storageTiers.push({
+        id,
+        name,
+        capacityGb: toNum(t.capacityGb),
+        monthlyPrice: toNum(t.monthlyPrice),
+        yearlyPrice: toNum(t.yearlyPrice),
+        isCustomPrice: t.isCustomPrice === true,
+      });
+    }
+  }
+
+  const modules: CatalogModule[] = [];
+  if (Array.isArray(data.modules)) {
+    for (const m of data.modules) {
+      if (!isRecord(m)) continue;
+      const id = toStr(m.id);
+      const moduleKey = toStr(m.moduleKey);
+      const name = toStr(m.name);
+      const monthlyPrice = toNum(m.monthlyPrice);
+      if (!id || !moduleKey || !name || monthlyPrice === null) continue;
+      modules.push({
+        id,
+        moduleKey,
+        name,
+        monthlyPrice,
+        yearlyPrice: toNum(m.yearlyPrice) ?? monthlyPrice * 10,
+      });
+    }
+  }
+
+  const settings = isRecord(data.settings) ? data.settings : {};
+  const ppnRateBps = toNum(settings.ppnRateBps) ?? 1100;
+  if (userTiers.length === 0 || storageTiers.length === 0) return null;
+  return { userTiers, storageTiers, modules, ppnRateBps };
+}
+
+async function loadCatalog(): Promise<PricingCatalog> {
+  const base = (process.env.NEXT_PUBLIC_APP_URL ?? '').replace(/\/$/, '') || 'http://localhost:3000';
+  try {
+    const res = await fetch(`${base}/api/public/pricing`, { next: { revalidate: 3600 } });
+    if (!res.ok) return FALLBACK_CATALOG;
+    const json: unknown = await res.json();
+    return parseCatalog(json) ?? FALLBACK_CATALOG;
+  } catch {
+    return FALLBACK_CATALOG;
+  }
+}
+
+/** Rp300.000 -> "Rp300rb", Rp1.250.000 -> "Rp1,25jt". */
+function rpSingkat(n: number): string {
+  if (n >= 1_000_000) {
+    const jt = n / 1_000_000;
+    return `Rp${Number.isInteger(jt) ? jt : jt.toLocaleString('id-ID')}jt`;
+  }
+  return `Rp${n / 1000}rb`;
+}
+
 /* ---------------------------------- data ---------------------------------- */
+
+const HERO_STATS = [
+  { value: '5', label: 'modul berbayar' },
+  { value: '7', label: 'tier pengguna' },
+  { value: '6', label: 'pilihan storage' },
+  { value: '3', label: 'channel chat' },
+];
+
+const VALUES = [
+  {
+    icon: Layers,
+    title: 'Semua modul dalam satu workspace',
+    desc: 'CRM, HR, koperasi, emas, dan kantor virtual AI terpadu — tanpa berpindah aplikasi.',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'Data terisolasi per tenant',
+    desc: 'Setiap perusahaan punya database sendiri. Data Anda tidak pernah tercampur dengan tenant lain.',
+  },
+  {
+    icon: FileCheck,
+    title: 'Audit log lengkap',
+    desc: 'Setiap aktivitas penting tercatat dan bisa ditelusuri kapan saja.',
+  },
+  {
+    icon: MessageCircle,
+    title: 'WhatsApp Business API resmi',
+    desc: 'Terhubung lewat WhatsApp Business Cloud API resmi dari Meta, bukan jalur tidak resmi.',
+  },
+];
+
+const MODULE_META: Record<string, { icon: LucideIcon; desc: string }> = {
+  tal: {
+    icon: Users,
+    desc: 'Kelola karyawan, absensi GPS, cuti, dan lembur dalam satu tempat.',
+  },
+  koperasi: {
+    icon: Handshake,
+    desc: 'Kelola anggota, simpanan, dan kegiatan koperasi Anda.',
+  },
+  emas: {
+    icon: Coins,
+    desc: 'Pantau harga emas dan simulasikan rencana tabungan emas.',
+  },
+  islami: {
+    icon: MoonStar,
+    desc: 'Jadwal salat, pengingat ibadah, dan fitur Islami untuk tim.',
+  },
+  kantor: {
+    icon: Bot,
+    desc: 'Kantor virtual 3D dengan 16 agen AI yang bekerja untuk Anda.',
+  },
+};
 
 const FEATURES = [
   {
@@ -77,64 +281,16 @@ const FEATURES = [
   },
 ];
 
-const PLANS = [
-  {
-    name: 'Free',
-    price: 'Rp0',
-    period: 'selamanya',
-    desc: 'Untuk mencoba WOORK dengan tim kecil.',
-    cta: 'Mulai Gratis',
-    features: ['1 workspace', '100 percakapan / bulan', '1 channel WhatsApp', 'CRM dasar', 'Dukungan komunitas'],
-    popular: false,
-  },
-  {
-    name: 'Starter',
-    price: 'Rp149rb',
-    period: '/ bulan',
-    desc: 'Untuk bisnis yang mulai bertumbuh.',
-    cta: 'Pilih Starter',
-    features: [
-      '1 workspace',
-      '2.000 percakapan / bulan',
-      '3 channel (WA, IG, FB)',
-      'Pipeline lead & follow up',
-      'Broadcast 5.000 pesan / bulan',
-      'Dukungan email',
-    ],
-    popular: false,
-  },
-  {
-    name: 'Professional',
-    price: 'Rp399rb',
-    period: '/ bulan',
-    desc: 'Untuk tim operasional yang serius.',
-    cta: 'Pilih Professional',
-    features: [
-      '3 workspace',
-      'Percakapan tanpa batas',
-      'Semua channel + Website Chat',
-      'Automasi Woo & bot builder',
-      'Broadcast 25.000 pesan / bulan',
-      'Laporan & audit lengkap',
-      'Dukungan prioritas',
-    ],
-    popular: true,
-  },
-  {
-    name: 'Enterprise',
-    price: 'Hubungi kami',
-    period: '',
-    desc: 'Untuk perusahaan dengan kebutuhan khusus.',
-    cta: 'Hubungi Sales',
-    features: [
-      'Workspace tanpa batas',
-      'SSO & keamanan lanjutan',
-      'Integrasi API & webhook khusus',
-      'Manajer akun dedikasi',
-      'SLA 99,9%',
-    ],
-    popular: false,
-  },
+const INCLUDED = [
+  { icon: Inbox, label: 'Inbox omnichannel' },
+  { icon: Users, label: 'CRM & pipeline' },
+  { icon: Megaphone, label: 'Broadcast' },
+  { icon: Zap, label: 'Automasi Woo' },
+  { icon: PenLine, label: 'E-Sign' },
+  { icon: Archive, label: 'E-Arsip' },
+  { icon: Video, label: 'WOORK MEET' },
+  { icon: MapPin, label: 'Absensi GPS' },
+  { icon: CalendarCheck, label: 'Kalender Kerja' },
 ];
 
 const FAQS = [
@@ -148,19 +304,17 @@ const FAQS = [
   },
   {
     q: 'Apakah data perusahaan saya aman?',
-    a: 'Keamanan adalah prioritas kami. Data tersimpan di database PostgreSQL terenkripsi, akses dilindungi role & permission, dan setiap aktivitas penting tercatat di audit log yang tidak bisa diubah.',
+    a: 'Keamanan adalah prioritas kami. Setiap perusahaan (tenant) punya database sendiri yang terisolasi, akses dilindungi role & permission, dan setiap aktivitas penting tercatat di audit log yang tidak bisa diubah.',
   },
   {
     q: 'Bisakah saya mencoba sebelum berlangganan?',
-    a: 'Tentu. Paket Free gratis selamanya dengan 100 percakapan per bulan — cukup daftar dan workspace Anda langsung aktif tanpa kartu kredit.',
+    a: 'Ya. Pendaftaran baru mendapatkan trial 30 hari gratis — cukup daftar, workspace Anda langsung aktif tanpa kartu kredit. Setelah trial berakhir, pilih paket yang sesuai dan lanjutkan berlangganan.',
   },
   {
     q: 'Apakah WOORK cocok untuk tim besar?',
-    a: 'Sangat cocok. Paket Professional dan Enterprise mendukung banyak workspace, role bertingkat (Owner, Admin, Supervisor, Agent, Viewer), assignment percakapan, dan laporan performa tim.',
+    a: 'Sangat cocok. Tier pengguna tersedia sampai 500 pengguna — lebih dari itu ada harga khusus — dengan role bertingkat (Owner, Admin, Supervisor, Agent, Viewer), assignment percakapan, dan laporan performa tim.',
   },
 ];
-
-const TRUSTED = ['Nusantara Kopi', 'Berkah Mart', 'Laras Fashion', 'Mitra Oto', 'Sinar Abadi'];
 
 /* ------------------------------ small pieces ------------------------------ */
 
@@ -179,7 +333,7 @@ function SectionHeading({
     <div className={align === 'center' ? 'mx-auto max-w-2xl text-center' : 'max-w-2xl'}>
       <p className="text-[13px] font-bold uppercase tracking-widest text-brand-600">{eyebrow}</p>
       <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-ink sm:text-4xl">{title}</h2>
-      {desc && <p className="mt-4 text-[15px] leading-relaxed text-muted">{desc}</p>}
+      {desc && <p className="mt-4 text-base leading-relaxed text-muted">{desc}</p>}
     </div>
   );
 }
@@ -208,72 +362,68 @@ function ChatBubble({
   );
 }
 
-/* --------------------------------- navbar --------------------------------- */
-
-function Navbar() {
-  return (
-    <SiteHeader />
-  );
-}
-
 /* ---------------------------------- hero ---------------------------------- */
 
 function HeroMockup() {
   return (
     <div className="relative">
-      <div className="card overflow-hidden p-0 shadow-pop">
+      <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-pop dark:bg-slate-900">
         <div className="flex items-center gap-1.5 border-b border-line bg-white px-4 py-3 dark:bg-slate-900">
-          <span className="h-2.5 w-2.5 rounded-full bg-danger/70" />
-          <span className="h-2.5 w-2.5 rounded-full bg-warn/70" />
-          <span className="h-2.5 w-2.5 rounded-full bg-wa/70" />
+          <span className="h-2.5 w-2.5 rounded-full bg-danger/70" aria-hidden />
+          <span className="h-2.5 w-2.5 rounded-full bg-warn/70" aria-hidden />
+          <span className="h-2.5 w-2.5 rounded-full bg-wa/70" aria-hidden />
           <span className="ml-2 text-[12px] font-semibold text-muted">WOORK Dashboard</span>
         </div>
         <div className="flex">
           <div className="hidden w-12 flex-col items-center gap-5 border-r border-line bg-slate-50/70 py-4 sm:flex dark:bg-slate-800/40">
             <span className="flex h-8 w-8 items-center justify-center rounded-btn bg-brand-500 text-white">
-              <Inbox className="h-4 w-4" />
+              <Inbox className="h-4 w-4" aria-hidden />
             </span>
-            <Users className="h-4 w-4 text-muted" />
-            <Bot className="h-4 w-4 text-muted" />
-            <Megaphone className="h-4 w-4 text-muted" />
-            <BarChart3 className="h-4 w-4 text-muted" />
+            <Users className="h-4 w-4 text-muted" aria-hidden />
+            <Bot className="h-4 w-4 text-muted" aria-hidden />
+            <Megaphone className="h-4 w-4 text-muted" aria-hidden />
+            <BarChart3 className="h-4 w-4 text-muted" aria-hidden />
           </div>
-          <div className="flex-1 space-y-3 bg-canvas/70 p-4">
+          <div className="min-w-0 flex-1 space-y-3 bg-canvas/70 p-4">
             <div className="grid grid-cols-3 gap-3">
               {[
                 { label: 'Pelanggan', value: '1.284' },
-                { label: 'Prospek Baru', value: '128' },
+                { label: 'Prospek', value: '128' },
                 { label: 'Konversi', value: '18,4%' },
               ].map((s) => (
-                <div key={s.label} className="rounded-card border border-line bg-white p-3 dark:bg-slate-900">
-                  <p className="text-[10px] font-medium uppercase tracking-wide text-muted">{s.label}</p>
-                  <p className="mt-1 text-lg font-extrabold text-ink">{s.value}</p>
+                <div key={s.label} className="min-w-0 rounded-card border border-line bg-white p-3 dark:bg-slate-900">
+                  <p className="truncate text-[10px] font-medium uppercase tracking-wide text-muted">{s.label}</p>
+                  <p className="mt-1 truncate text-lg font-extrabold text-ink">{s.value}</p>
                 </div>
               ))}
             </div>
             <div className="overflow-hidden rounded-card border border-line bg-white dark:bg-slate-900">
               <div className="flex text-[11px]">
-                <div className="w-2/5 space-y-2 border-r border-line p-2.5">
+                <div className="hidden w-1/2 space-y-2 border-r border-line p-2.5 min-[420px]:block">
                   {[
-                    { n: 'Bu Sari', p: 'Toko kue, mau terima…', t: '09.57', badge: 'Woo menangani', tone: 'green' as const },
-                    { n: 'Pak Andi', p: 'Kalau beli 20 unit…', t: '09.12', badge: 'Menunggu tim', tone: 'amber' as const },
-                    { n: 'Bu Rina', p: 'Saya sudah transfer…', t: '08.47', badge: null, tone: 'gray' as const },
+                    { n: 'Bu Sari', p: 'Toko kue, mau terima…', badge: 'Woo menangani', tone: 'green' as const },
+                    { n: 'Pak Andi', p: 'Kalau beli 20 unit…', badge: 'Menunggu tim', tone: 'amber' as const },
+                    { n: 'Bu Rina', p: 'Saya sudah transfer…', badge: null, tone: 'gray' as const },
                   ].map((c) => (
-                    <div key={c.n} className="flex items-center gap-2 rounded-btn bg-slate-50 p-1.5 dark:bg-slate-800/60">
-                      <Avatar name={c.n} size={26} />
+                    <div key={c.n} className="flex items-start gap-2 rounded-btn bg-slate-50 p-1.5 dark:bg-slate-800/60">
+                      <Avatar name={c.n} size={22} />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-[11px] font-semibold text-ink">{c.n}</p>
                         <p className="truncate text-[10px] text-muted">{c.p}</p>
+                        {c.badge && (
+                          <div className="mt-1">
+                            <Badge tone={c.tone}>{c.badge}</Badge>
+                          </div>
+                        )}
                       </div>
-                      {c.badge && <Badge tone={c.tone}>{c.badge}</Badge>}
                     </div>
                   ))}
                 </div>
-                <div className="flex-1 space-y-2 bg-slate-50/60 p-2.5 dark:bg-slate-800/30">
+                <div className="min-w-0 flex-1 space-y-2 bg-slate-50/60 p-2.5 dark:bg-slate-800/30">
                   <ChatBubble from="customer" text="Halo, saya mau tanya paket Pro" time="09.42" />
                   <ChatBubble from="agent" text="Halo Bu Sari! Paket Pro cocok untuk usaha yang sedang berkembang." time="09.43" />
                   <div className="flex justify-center">
-                    <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                    <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-center text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
                       Lead tercatat: Bu Sari, tahap Terkualifikasi
                     </span>
                   </div>
@@ -283,12 +433,12 @@ function HeroMockup() {
           </div>
         </div>
       </div>
-      <div className="absolute -left-3 top-10 hidden rounded-card border border-line bg-white px-3 py-2 shadow-pop sm:block dark:bg-slate-900">
+      <div className="absolute -left-6 -top-6 hidden rounded-card border border-line bg-white px-3 py-2 shadow-pop lg:block dark:bg-slate-900" aria-hidden>
         <p className="flex items-center gap-1.5 text-[11px] font-semibold text-ink">
           <Sparkles className="h-3.5 w-3.5 text-brand-500" /> Woo menangani 24/7
         </p>
       </div>
-      <div className="absolute -right-3 bottom-10 hidden rounded-card border border-line bg-white px-3 py-2 shadow-pop sm:block dark:bg-slate-900">
+      <div className="absolute -bottom-6 -right-6 hidden rounded-card border border-line bg-white px-3 py-2 shadow-pop lg:block dark:bg-slate-900" aria-hidden>
         <p className="text-[11px] font-semibold text-ink">
           <span className="text-wa">+128</span> prospek minggu ini
         </p>
@@ -300,60 +450,121 @@ function HeroMockup() {
 function Hero() {
   return (
     <section className="relative overflow-hidden">
-      <div className="pointer-events-none absolute -top-24 right-0 h-96 w-96 rounded-full bg-brand-50 blur-3xl dark:bg-brand-900/20" aria-hidden />
-      <div className="relative mx-auto grid max-w-7xl items-center gap-12 px-4 pb-20 pt-16 sm:px-6 lg:grid-cols-2 lg:pt-24">
-        <div>
-          <Badge tone="blue" className="px-3 py-1 text-[12px]">
-            <Sparkles className="h-3.5 w-3.5" /> Omnichannel CRM untuk bisnis modern
-          </Badge>
-          <h1 className="mt-5 text-4xl font-extrabold leading-[1.15] tracking-tight text-ink sm:text-5xl">
-            Kelola Semua Percakapan dan Pelanggan dalam Satu Platform
-          </h1>
-          <p className="mt-5 max-w-xl text-[16px] leading-relaxed text-muted">
-            WOORK membantu tim mengelola WhatsApp, Instagram, Facebook, lead, follow up, dan customer
-            relationship dalam satu workspace yang sederhana.
-          </p>
-          <div className="mt-8 flex flex-wrap items-center gap-3">
-            <Link href="/register" className="btn-primary px-6 py-3 text-[15px]">
-              Mulai Sekarang <ArrowRight className="h-4 w-4" />
-            </Link>
-            <Link href="/login" className="btn-secondary px-6 py-3 text-[15px]">
-              <Play className="h-4 w-4" /> Lihat Demo
-            </Link>
+      {/* gradient mesh latar */}
+      <div className="pointer-events-none absolute inset-0" aria-hidden>
+        <div className="absolute -top-32 right-[-8%] h-[420px] w-[420px] rounded-full bg-brand-500/15 blur-3xl" />
+        <div className="absolute -bottom-40 left-[-6%] hidden h-[380px] w-[380px] rounded-full bg-emerald-500/10 blur-3xl sm:block" />
+        <div className="absolute left-1/3 top-24 hidden h-56 w-56 rounded-full bg-brand-100/60 blur-3xl lg:block dark:bg-brand-900/20" />
+      </div>
+      <div className="relative mx-auto max-w-7xl px-4 pb-16 pt-14 sm:px-6 sm:pt-20 lg:pb-20">
+        <div className="grid items-center gap-12 lg:grid-cols-[1.05fr_0.95fr]">
+          <div>
+            <Badge tone="blue" className="px-3 py-1 text-[12px]">
+              <Sparkles className="h-3.5 w-3.5" aria-hidden /> Platform operasional bisnis terpadu
+            </Badge>
+            <h1 className="mt-5 text-3xl font-extrabold leading-[1.15] tracking-tight text-ink sm:text-5xl lg:text-6xl">
+              Satu workspace untuk seluruh operasional bisnis Anda
+            </h1>
+            <p className="mt-5 max-w-xl text-base leading-relaxed text-muted sm:text-lg">
+              WOORK menyatukan CRM omnichannel, HR, koperasi, emas, dan kantor virtual AI dalam satu
+              platform — supaya tim Anda bekerja dari satu tempat, bukan lima aplikasi.
+            </p>
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              <Link href="/register" className="btn-primary px-6 py-3.5 text-[15px]">
+                Daftar Gratis 30 Hari <ArrowRight className="h-4 w-4" aria-hidden />
+              </Link>
+              <Link href="/login" className="btn-secondary px-6 py-3.5 text-[15px]">
+                <Play className="h-4 w-4" aria-hidden /> Masuk ke Workspace
+              </Link>
+            </div>
+            <ul className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-[13px] text-muted">
+              {['Trial 30 hari gratis', 'Tanpa kartu kredit', 'Aktif dalam hitungan menit'].map((t) => (
+                <li key={t} className="flex items-center gap-1.5">
+                  <Check className="h-4 w-4 text-wa" aria-hidden /> {t}
+                </li>
+              ))}
+            </ul>
           </div>
-          <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-[13px] text-muted">
-            <span className="flex items-center gap-1.5">
-              <Check className="h-4 w-4 text-wa" /> Gratis selamanya untuk paket Free
-            </span>
-            <span className="flex items-center gap-1.5">
-              <Check className="h-4 w-4 text-wa" /> Tanpa kartu kredit
-            </span>
-            <span className="flex items-center gap-1.5">
-              <Check className="h-4 w-4 text-wa" /> Aktif dalam 2 menit
-            </span>
-          </div>
+          <HeroMockup />
         </div>
-        <HeroMockup />
+        <dl className="mt-14 grid grid-cols-2 gap-6 border-t border-line pt-8 sm:grid-cols-4">
+          {HERO_STATS.map((s) => (
+            <div key={s.label}>
+              <dt className="sr-only">{s.label}</dt>
+              <dd className="text-3xl font-extrabold tracking-tight text-ink">{s.value}</dd>
+              <dd className="mt-1 text-[13px] text-muted">{s.label}</dd>
+            </div>
+          ))}
+        </dl>
       </div>
     </section>
   );
 }
 
-/* -------------------------------- trusted --------------------------------- */
+/* ------------------------------ pita nilai -------------------------------- */
 
-function TrustedBy() {
+function ValueStrip() {
   return (
-    <section className="border-y border-line bg-white dark:bg-slate-900/40" aria-label="Dipercaya oleh">
-      <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
-        <p className="text-center text-[12px] font-bold uppercase tracking-widest text-muted">
-          Dipercaya oleh tim operasional bisnis modern
-        </p>
-        <div className="mt-6 flex flex-wrap items-center justify-center gap-x-10 gap-y-3">
-          {TRUSTED.map((name) => (
-            <span key={name} className="text-[15px] font-bold text-muted/70">
-              {name}
-            </span>
+    <section className="border-y border-line bg-white dark:bg-slate-900/40" aria-label="Nilai utama WOORK">
+      <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6">
+        <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+          {VALUES.map((v) => (
+            <div key={v.title}>
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-card bg-brand-50 text-brand-600 dark:bg-brand-900/30">
+                <v.icon className="h-5 w-5" aria-hidden />
+              </span>
+              <h3 className="mt-4 text-[15px] font-bold text-ink">{v.title}</h3>
+              <p className="mt-1.5 text-[13.5px] leading-relaxed text-muted">{v.desc}</p>
+            </div>
           ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* --------------------------------- modul ---------------------------------- */
+
+function ModulSection({ modules }: { modules: CatalogModule[] }) {
+  return (
+    <section id="modul" className="scroll-mt-20">
+      <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-24">
+        <SectionHeading
+          eyebrow="Modul berbayar"
+          title="Tambah modul sesuai kebutuhan bisnis Anda"
+          desc="Mulai dari paket dasar, lalu aktifkan modul yang Anda butuhkan. Setiap modul ditagih per bulan dan bisa digabung dalam satu langganan."
+        />
+        <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {modules.map((m) => {
+            const meta = MODULE_META[m.moduleKey] ?? { icon: Sparkles, desc: 'Modul tambahan untuk workspace Anda.' };
+            const Icon = meta.icon;
+            return (
+              <Card key={m.id} className="flex flex-col rounded-3xl transition-all hover:-translate-y-1 hover:shadow-pop">
+                <span className="inline-flex h-11 w-11 items-center justify-center rounded-card bg-brand-50 text-brand-600 dark:bg-brand-900/30">
+                  <Icon className="h-5 w-5" aria-hidden />
+                </span>
+                <CardTitle className="mt-4 text-[16px]">{m.name}</CardTitle>
+                <p className="mt-2 flex-1 text-[13.5px] leading-relaxed text-muted">{meta.desc}</p>
+                <p className="mt-5">
+                  <span className="text-[22px] font-extrabold tracking-tight text-ink">{rpSingkat(m.monthlyPrice)}</span>
+                  <span className="text-[13px] text-muted"> / bulan</span>
+                </p>
+                <p className="mt-0.5 text-[12.5px] text-muted">atau {rpSingkat(m.yearlyPrice)} / tahun</p>
+              </Card>
+            );
+          })}
+          <a
+            href="#harga"
+            className="flex flex-col justify-center rounded-3xl border-2 border-dashed border-line bg-white/60 p-5 transition-all hover:-translate-y-1 hover:border-brand-300 hover:shadow-pop dark:bg-slate-900/60"
+          >
+            <span className="text-[16px] font-bold text-ink">Hitung paket Anda sendiri</span>
+            <span className="mt-2 text-[13.5px] leading-relaxed text-muted">
+              Pilih jumlah pengguna, storage, dan modul — total langsung terhitung beserta PPN.
+            </span>
+            <span className="mt-4 inline-flex items-center gap-1.5 text-[14px] font-semibold text-brand-600">
+              Buka kalkulator harga <ArrowRight className="h-4 w-4" aria-hidden />
+            </span>
+          </a>
         </div>
       </div>
     </section>
@@ -364,8 +575,8 @@ function TrustedBy() {
 
 function Fitur() {
   return (
-    <section id="fitur" className="scroll-mt-20">
-      <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6">
+    <section id="fitur" className="scroll-mt-20 bg-white dark:bg-slate-900/40">
+      <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-24">
         <SectionHeading
           eyebrow="Fitur"
           title="Semua yang tim Anda butuhkan"
@@ -373,8 +584,8 @@ function Fitur() {
         />
         <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {FEATURES.map((f) => (
-            <Card key={f.title} className="transition-shadow hover:shadow-pop">
-              <span className="inline-flex h-11 w-11 items-center justify-center rounded-card bg-brand-50 text-brand-600 dark:bg-brand-900/30">
+            <Card key={f.title} className="rounded-3xl transition-all hover:-translate-y-1 hover:shadow-pop">
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-card bg-gradient-to-br from-brand-50 to-brand-100 text-brand-600 dark:from-brand-900/40 dark:to-brand-900/20">
                 <f.icon className="h-5 w-5" aria-hidden />
               </span>
               <CardTitle className="mt-4">{f.title}</CardTitle>
@@ -391,13 +602,13 @@ function Fitur() {
 
 function InboxVisual() {
   return (
-    <div className="card overflow-hidden p-0 shadow-pop" aria-label="Contoh tampilan inbox WOORK">
+    <div className="overflow-hidden rounded-3xl border border-line bg-white shadow-pop dark:bg-slate-900" aria-label="Contoh tampilan inbox WOORK">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
         <div className="flex items-center gap-2">
-          <Search className="h-4 w-4 text-muted" />
+          <Search className="h-4 w-4 text-muted" aria-hidden />
           <span className="text-[12.5px] text-muted">Cari nama atau pesan</span>
         </div>
-        <Bell className="h-4 w-4 text-muted" />
+        <Bell className="h-4 w-4 text-muted" aria-hidden />
       </div>
       <div className="grid sm:grid-cols-[1fr_1.4fr]">
         <div className="space-y-1 border-b border-line p-3 sm:border-b-0 sm:border-r">
@@ -445,7 +656,7 @@ function InboxVisual() {
           </div>
           <div className="mt-4 flex items-center gap-2 rounded-input border border-line bg-white px-3 py-2.5 dark:bg-slate-900">
             <span className="flex-1 text-[12.5px] text-muted">Tulis pesan...</span>
-            <Send className="h-4 w-4 text-brand-500" />
+            <Send className="h-4 w-4 text-brand-500" aria-hidden />
           </div>
         </div>
       </div>
@@ -455,8 +666,8 @@ function InboxVisual() {
 
 function ProdukSection() {
   return (
-    <section id="produk" className="scroll-mt-20 bg-white dark:bg-slate-900/40">
-      <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 py-20 sm:px-6 lg:grid-cols-2">
+    <section id="produk" className="scroll-mt-20">
+      <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 py-20 sm:px-6 sm:py-24 lg:grid-cols-2">
         <div>
           <SectionHeading
             align="left"
@@ -472,7 +683,7 @@ function ProdukSection() {
             ].map((t) => (
               <li key={t} className="flex items-start gap-2.5">
                 <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30">
-                  <Check className="h-3 w-3" />
+                  <Check className="h-3 w-3" aria-hidden />
                 </span>
                 {t}
               </li>
@@ -495,8 +706,8 @@ function PipelineSection() {
     { title: 'Menang', cards: [{ n: 'Bu Rina', v: 'Rp9 jt' }] },
   ];
   return (
-    <section className="scroll-mt-20">
-      <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6">
+    <section className="scroll-mt-20 bg-white dark:bg-slate-900/40">
+      <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-24">
         <SectionHeading
           eyebrow="CRM & Pipeline"
           title="Bangun proses penjualan yang lebih terstruktur"
@@ -504,14 +715,14 @@ function PipelineSection() {
         />
         <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4" role="list" aria-label="Pipeline penjualan">
           {cols.map((col, i) => (
-            <div key={col.title} role="listitem" className="rounded-card border border-line bg-slate-50/70 p-3 dark:bg-slate-800/40">
+            <div key={col.title} role="listitem" className="rounded-3xl border border-line bg-slate-50/70 p-3 dark:bg-slate-800/40">
               <div className="mb-3 flex items-center justify-between px-1">
                 <p className="text-[13px] font-bold text-ink">{col.title}</p>
                 <Badge tone={i === 3 ? 'green' : i === 0 ? 'blue' : 'gray'}>{col.cards.length}</Badge>
               </div>
               <div className="space-y-2.5">
                 {col.cards.map((c) => (
-                  <div key={c.n} className="card cursor-grab p-3 transition-shadow hover:shadow-pop">
+                  <div key={c.n} className="cursor-grab rounded-card border border-line bg-white p-3 shadow-soft transition-shadow hover:shadow-pop dark:bg-slate-900">
                     <p className="text-[13px] font-semibold text-ink">{c.n}</p>
                     <div className="mt-1.5 flex items-center justify-between">
                       <span className="text-[12px] font-bold text-brand-600">{c.v}</span>
@@ -537,18 +748,18 @@ function AutomationSection() {
     { icon: Send, label: 'Action', title: 'Kirim info paket', desc: 'Balas otomatis + catat lead' },
   ];
   return (
-    <section className="scroll-mt-20 bg-white dark:bg-slate-900/40">
-      <div className="mx-auto max-w-5xl px-4 py-20 sm:px-6">
+    <section className="scroll-mt-20">
+      <div className="mx-auto max-w-5xl px-4 py-20 sm:px-6 sm:py-24">
         <SectionHeading
           eyebrow="Automation"
           title="Automasi pekerjaan repetitif"
           desc="Susun alur kerja tanpa coding: tentukan pemicu, kondisi, dan aksi. Woo mengerjakannya untuk Anda."
         />
-        <div className="card mt-12 p-6 shadow-soft sm:p-8">
+        <div className="mt-12 rounded-3xl border border-line bg-white p-6 shadow-soft sm:p-8 dark:bg-slate-900">
           <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
             {nodes.map((n, i) => (
               <div key={n.label} className="flex flex-1 flex-col items-stretch gap-3 sm:flex-row sm:items-center">
-                <div className="flex-1 rounded-card border-2 border-brand-100 bg-brand-50/50 p-4 text-center dark:border-brand-900/40 dark:bg-brand-900/10">
+                <div className="flex-1 rounded-3xl border-2 border-brand-100 bg-brand-50/50 p-4 text-center dark:border-brand-900/40 dark:bg-brand-900/10">
                   <span className="mx-auto flex h-10 w-10 items-center justify-center rounded-card bg-brand-500 text-white">
                     <n.icon className="h-5 w-5" aria-hidden />
                   </span>
@@ -580,8 +791,8 @@ function AnalyticsSection() {
   const bars = [42, 68, 55, 80, 64, 92, 74];
   const days = ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'];
   return (
-    <section id="solusi" className="scroll-mt-20">
-      <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6">
+    <section id="solusi" className="scroll-mt-20 bg-white dark:bg-slate-900/40">
+      <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-24">
         <SectionHeading
           eyebrow="Reporting"
           title="Pantau performa tim"
@@ -593,7 +804,7 @@ function AnalyticsSection() {
             { label: 'Pesan ditangani Woo', value: '86%', note: 'Tanpa campur tangan tim', icon: Bot },
             { label: 'Audit tercatat', value: '1.647', note: 'Rantai data terverifikasi utuh', icon: ShieldCheck },
           ].map((s) => (
-            <Card key={s.label}>
+            <Card key={s.label} className="rounded-3xl">
               <div className="flex items-center justify-between">
                 <p className="text-[13px] font-medium text-muted">{s.label}</p>
                 <s.icon className="h-4 w-4 text-brand-500" aria-hidden />
@@ -603,14 +814,14 @@ function AnalyticsSection() {
             </Card>
           ))}
         </div>
-        <Card className="mt-5">
+        <div className="mt-5 rounded-3xl border border-line bg-white p-5 shadow-soft dark:bg-slate-900">
           <div className="flex items-center justify-between">
             <CardTitle>Percakapan minggu ini</CardTitle>
             <Badge tone="green">+18% vs minggu lalu</Badge>
           </div>
           <div className="mt-6 flex h-44 items-end gap-3 sm:gap-5" role="img" aria-label="Grafik batang percakapan per hari">
             {bars.map((h, i) => (
-              <div key={days[i]} className="flex flex-1 flex-col items-center gap-2">
+              <div key={days[i]} className="flex min-w-0 flex-1 flex-col items-center gap-2">
                 <div className="flex h-36 w-full items-end">
                   <div
                     className={`w-full rounded-t-[6px] ${i === 5 ? 'bg-brand-900' : 'bg-brand-500/85'}`}
@@ -621,7 +832,7 @@ function AnalyticsSection() {
               </div>
             ))}
           </div>
-        </Card>
+        </div>
       </div>
     </section>
   );
@@ -629,52 +840,31 @@ function AnalyticsSection() {
 
 /* --------------------------------- pricing -------------------------------- */
 
-function Pricing() {
+function PricingSection({ catalog }: { catalog: PricingCatalog }) {
   return (
-    <section id="harga" className="scroll-mt-20 bg-white dark:bg-slate-900/40">
-      <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6">
+    <section id="harga" className="scroll-mt-20">
+      <div className="mx-auto max-w-7xl px-4 py-20 sm:px-6 sm:py-24">
         <SectionHeading
           eyebrow="Harga"
-          title="Harga transparan untuk setiap tahap bisnis"
-          desc="Mulai gratis, upgrade kapan saja. Semua paket termasuk inbox omnichannel dan CRM."
+          title="Harga transparan, hitung sesuai kebutuhan Anda"
+          desc="Tidak ada paket tersembunyi: pilih jumlah pengguna, storage, dan modul — total beserta PPN langsung terlihat. Semua harga diambil dari katalog resmi WOORK."
         />
-        <div className="mt-12 grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-          {PLANS.map((p) => (
-            <Card
-              key={p.name}
-              className={`relative flex flex-col ${p.popular ? 'border-2 border-brand-500 shadow-pop' : ''}`}
-            >
-              {p.popular && (
-                <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-brand-500 px-3 py-1 text-[11px] font-bold text-white shadow-sm">
-                  Paling populer
-                </span>
-              )}
-              <CardTitle className="text-[16px]">{p.name}</CardTitle>
-              <p className="mt-1 text-[12.5px] text-muted">{p.desc}</p>
-              <p className="mt-4">
-                <span className="text-[28px] font-extrabold tracking-tight text-ink">{p.price}</span>
-                {p.period && <span className="text-[13px] text-muted">{p.period}</span>}
-              </p>
-              <ul className="mt-5 flex-1 space-y-2.5">
-                {p.features.map((f) => (
-                  <li key={f} className="flex items-start gap-2 text-[13px] text-ink">
-                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-wa" aria-hidden />
-                    {f}
-                  </li>
-                ))}
-              </ul>
-              <Link
-                href="/register"
-                className={`mt-6 px-4 py-2.5 text-sm ${p.popular ? 'btn-primary' : 'btn-secondary'}`}
+        <div className="mt-10">
+          <p className="text-center text-[13px] font-bold uppercase tracking-wide text-muted">
+            Semua paket sudah termasuk
+          </p>
+          <ul className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            {INCLUDED.map((f) => (
+              <li
+                key={f.label}
+                className="flex min-h-[36px] items-center gap-1.5 rounded-full border border-line bg-white px-3 py-1.5 text-[12.5px] font-medium text-ink dark:bg-slate-900"
               >
-                {p.cta}
-              </Link>
-            </Card>
-          ))}
+                <f.icon className="h-3.5 w-3.5 text-brand-600" aria-hidden /> {f.label}
+              </li>
+            ))}
+          </ul>
         </div>
-        <p className="mt-8 text-center text-[13px] text-muted">
-          Harga belum termasuk PPN. Batalkan kapan saja tanpa penalti.
-        </p>
+        <PricingCalculator catalog={catalog} />
       </div>
     </section>
   );
@@ -684,8 +874,8 @@ function Pricing() {
 
 function Faq() {
   return (
-    <section className="scroll-mt-20" aria-label="Pertanyaan umum">
-      <div className="mx-auto max-w-3xl px-4 py-20 sm:px-6">
+    <section id="faq" className="scroll-mt-20 bg-white dark:bg-slate-900/40" aria-label="Pertanyaan umum">
+      <div className="mx-auto max-w-3xl px-4 py-20 sm:px-6 sm:py-24">
         <SectionHeading
           eyebrow="FAQ"
           title="Pertanyaan yang sering diajukan"
@@ -693,8 +883,8 @@ function Faq() {
         />
         <div className="mt-10 space-y-3">
           {FAQS.map((f) => (
-            <details key={f.q} className="card group px-5 py-4">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-[15px] font-semibold text-ink [&::-webkit-details-marker]:hidden">
+            <details key={f.q} className="group rounded-card border border-line bg-white px-5 py-4 shadow-soft dark:bg-slate-900">
+              <summary className="flex min-h-[44px] cursor-pointer list-none items-center justify-between gap-4 text-[15px] font-semibold text-ink [&::-webkit-details-marker]:hidden">
                 {f.q}
                 <ChevronDown className="h-5 w-5 shrink-0 text-muted transition-transform group-open:rotate-180" aria-hidden />
               </summary>
@@ -713,21 +903,22 @@ function FinalCta() {
   return (
     <section className="scroll-mt-20">
       <div className="mx-auto max-w-7xl px-4 pb-20 sm:px-6">
-        <div className="relative overflow-hidden rounded-card bg-brand-900 px-6 py-16 text-center shadow-pop sm:px-12">
+        <div className="relative overflow-hidden rounded-3xl bg-brand-900 px-6 py-16 text-center shadow-pop sm:px-12">
           <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-brand-500/20 blur-3xl" aria-hidden />
           <div className="pointer-events-none absolute -bottom-24 -left-16 h-64 w-64 rounded-full bg-brand-500/10 blur-3xl" aria-hidden />
           <div className="relative">
             <h2 className="mx-auto max-w-2xl text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
-              Siap mengelola customer dengan lebih baik?
+              Mulai trial 30 hari gratis hari ini
             </h2>
             <p className="mx-auto mt-4 max-w-xl text-[15px] leading-relaxed text-brand-100">
-              Bergabung dengan ratusan bisnis yang sudah merapikan percakapan dan meningkatkan penjualan bersama WOORK.
+              Daftar sekarang — tanpa kartu kredit. Workspace Anda aktif dalam hitungan menit, dan Anda
+              bisa memilih paket setelah mencoba.
             </p>
             <Link
               href="/register"
               className="btn mt-8 bg-white px-8 py-3.5 text-[15px] font-bold text-brand-900 shadow-pop transition-all hover:bg-brand-50 active:scale-[.98]"
             >
-              Mulai Menggunakan WOORK <ArrowRight className="h-4 w-4" />
+              Daftar Gratis 30 Hari <ArrowRight className="h-4 w-4" aria-hidden />
             </Link>
           </div>
         </div>
@@ -742,18 +933,28 @@ function Footer() {
   const cols = [
     {
       title: 'Produk',
-      links: ['Omnichannel Inbox', 'CRM', 'Broadcast', 'Automation', 'Harga'],
-      hrefs: ['#produk', '#fitur', '#harga', '#fitur', '#harga'],
+      links: [
+        { label: 'Omnichannel Inbox', href: '#produk' },
+        { label: 'Fitur', href: '#fitur' },
+        { label: 'Modul', href: '#modul' },
+        { label: 'Harga', href: '#harga' },
+      ],
     },
     {
       title: 'Perusahaan',
-      links: ['Tentang Kami', 'Karier', 'Blog', 'Kontak'],
-      hrefs: ['#tentang', '#tentang', '#tentang', '#tentang'],
+      links: [
+        { label: 'Tentang Kami', href: '#tentang' },
+        { label: 'Lowongan Kerja', href: '/jobs' },
+        { label: 'Masuk', href: '/login' },
+      ],
     },
     {
       title: 'Bantuan',
-      links: ['Pusat Bantuan', 'Dokumentasi API', 'Status Layanan', 'Kebijakan Privasi'],
-      hrefs: ['#tentang', '#tentang', '#tentang', '#tentang'],
+      links: [
+        { label: 'Pertanyaan Umum', href: '#faq' },
+        { label: 'Harga', href: '#harga' },
+        { label: 'Daftar', href: '/register' },
+      ],
     },
   ];
   return (
@@ -763,17 +964,17 @@ function Footer() {
           <div>
             <Logo />
             <p className="mt-4 max-w-xs text-[13.5px] leading-relaxed text-muted">
-              Omnichannel CRM & Customer Management Platform untuk bisnis modern Indonesia.
+              Platform operasional bisnis terpadu untuk perusahaan Indonesia.
             </p>
           </div>
           {cols.map((c) => (
             <nav key={c.title} aria-label={c.title}>
               <p className="text-[13px] font-bold uppercase tracking-wide text-ink">{c.title}</p>
               <ul className="mt-4 space-y-2.5">
-                {c.links.map((l, i) => (
-                  <li key={l}>
-                    <a href={c.hrefs[i]} className="text-[13.5px] text-muted transition-colors hover:text-ink">
-                      {l}
+                {c.links.map((l) => (
+                  <li key={l.label}>
+                    <a href={l.href} className="inline-block min-h-[28px] text-[13.5px] text-muted transition-colors hover:text-ink">
+                      {l.label}
                     </a>
                   </li>
                 ))}
@@ -784,7 +985,7 @@ function Footer() {
         <div className="mt-12 flex flex-col items-center justify-between gap-3 border-t border-line pt-6 text-[12.5px] text-muted sm:flex-row">
           <p>© 2026 WOORK. Seluruh hak cipta dilindungi.</p>
           <p className="flex items-center gap-1.5">
-            <ShieldCheck className="h-4 w-4" aria-hidden /> Data Anda aman & terenkripsi
+            <ShieldCheck className="h-4 w-4" aria-hidden /> Data Anda aman &amp; terenkripsi
           </p>
         </div>
       </div>
@@ -794,19 +995,21 @@ function Footer() {
 
 /* ---------------------------------- page ---------------------------------- */
 
-export default function LandingPage() {
+export default async function LandingPage() {
+  const catalog = await loadCatalog();
   return (
-    <div className="min-h-screen bg-canvas text-ink">
-      <Navbar />
+    <div className="min-h-screen overflow-x-clip bg-canvas text-ink">
+      <SiteHeader />
       <main>
         <Hero />
-        <TrustedBy />
+        <ValueStrip />
+        <ModulSection modules={catalog.modules} />
         <Fitur />
         <ProdukSection />
         <PipelineSection />
         <AutomationSection />
         <AnalyticsSection />
-        <Pricing />
+        <PricingSection catalog={catalog} />
         <Faq />
         <FinalCta />
       </main>

@@ -15,14 +15,15 @@ export async function GET(req: Request) {
     if (!allowed) return apiErr('Anda tidak memiliki akses ke halaman ini.', 403);
 
     const orgId = ctx.organizationId;
-    const [users, activeUsers, roles, departments, recentAudit, byRole] = await Promise.all([
+    const [users, activeUsers, roles, departments, recentAuditRaw, byRole] = await Promise.all([
       prisma.membership.count({ where: { organizationId: orgId } }),
       prisma.membership.count({ where: { organizationId: orgId, status: 'ACTIVE' } }),
       prisma.role.count({ where: { organizationId: orgId } }),
       prisma.department.count({ where: { organizationId: orgId } }),
+      // AuditLog TIDAK punya relasi `user` di tenant client — nama user
+      // diambil terpisah dari mirror User.
       prisma.auditLog.findMany({
         where: { organizationId: orgId },
-        include: { user: { select: { name: true } } },
         orderBy: { createdAt: 'desc' },
         take: 8,
       }),
@@ -32,6 +33,20 @@ export async function GET(req: Request) {
         _count: { roleId: true },
       }),
     ]);
+    const auditUserIds = [
+      ...new Set(recentAuditRaw.map((a) => a.userId).filter((id): id is string => !!id)),
+    ];
+    const auditUsers = auditUserIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: auditUserIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const auditUserById = new Map(auditUsers.map((u) => [u.id, u]));
+    const recentAudit = recentAuditRaw.map((a) => ({
+      ...a,
+      user: a.userId ? (auditUserById.get(a.userId) ?? null) : null,
+    }));
     const roleNames = await prisma.role.findMany({
       where: { id: { in: byRole.map((b) => b.roleId) } },
       select: { id: true, name: true },
