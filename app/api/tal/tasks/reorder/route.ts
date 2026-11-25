@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'WRITE');
     const body = await req.json().catch(() => ({}));
     const ordered: Array<{ id: string; order: number }> = Array.isArray(body.ordered)
       ? body.ordered.filter((x: any) => typeof x?.id === 'string' && typeof x?.order === 'number')

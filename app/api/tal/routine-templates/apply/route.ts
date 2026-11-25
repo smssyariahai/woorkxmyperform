@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { applyTemplateToPeriod } from '@/lib/tal/server';
 import { TAL_DEFAULT_ROUTINE_TEMPLATES } from '@/lib/tal/types';
@@ -16,6 +16,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'WRITE');
     const body = await req.json().catch(() => ({}));
     const templateId = body.templateId as string;
     const scopeType = body.scopeType as string;

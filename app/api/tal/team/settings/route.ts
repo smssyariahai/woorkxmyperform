@@ -7,7 +7,7 @@
 // Semua tulis: gate canManage (§5.3) + TalAuditLog dengan alasan wajib.
 // Atasan ditulis ke UserEmployment.managerId (via Membership), BUKAN kolom baru.
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import {
   talTeamCanManage,
@@ -23,6 +23,7 @@ const GATE_MSG = 'Hanya Administrator atau pengguna dengan akses tulis halaman i
 export async function GET() {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'READ');
     if (!(await talTeamCanManage(ctx))) return apiErr(GATE_MSG, 403);
     const users = await talLoadOrgUsers(ctx.organizationId);
     const byId = new Map(users.map((u) => [u.id, u]));
@@ -60,6 +61,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'WRITE');
     if (!(await talTeamCanManage(ctx))) return apiErr(GATE_MSG, 403);
     const b = (await req.json().catch(() => ({}))) as any;
     const reason = String(b.reason || '').trim();
@@ -171,6 +173,7 @@ export async function POST(req: Request) {
 export async function DELETE(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'WRITE');
     if (!(await talTeamCanManage(ctx))) return apiErr(GATE_MSG, 403);
     const url = new URL(req.url);
     const grantId = url.searchParams.get('grantId') || '';

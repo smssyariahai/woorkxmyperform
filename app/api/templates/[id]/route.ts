@@ -27,8 +27,11 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
         body: parsed.data.body.trim(),
         isActive: parsed.data.isActive ?? existing.isActive,
       },
-      include: { createdBy: { select: { id: true, name: true } } },
     });
+    // ReplyTemplate TIDAK punya relasi `createdBy` di tenant client.
+    const author = tpl.createdById
+      ? await prisma.user.findUnique({ where: { id: tpl.createdById }, select: { id: true, name: true } })
+      : null;
 
     await audit({
       organizationId: ctx.organizationId,
@@ -39,7 +42,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
       ipAddress: getClientIp(req),
     });
 
-    return apiOk(tpl);
+    return apiOk({ ...tpl, createdBy: author ?? null });
   } catch (e: any) {
     if (e instanceof Response) return e;
     return apiErr('Gagal mengubah template.', 500);

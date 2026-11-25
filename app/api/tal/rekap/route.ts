@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { mapLockReport, mapTalTask } from '@/lib/tal/server';
 import {
@@ -19,6 +19,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'READ');
     const q = new URL(req.url).searchParams;
     const year = Number(q.get('year') ?? new Date().getFullYear());
     const month = Number(q.get('month') ?? new Date().getMonth() + 1);

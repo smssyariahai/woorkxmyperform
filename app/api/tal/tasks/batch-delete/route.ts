@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { isTaskPlanLocked } from '@/lib/tal/server';
 
@@ -9,6 +9,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'WRITE');
     const body = await req.json().catch(() => ({}));
     const ids: string[] = Array.isArray(body.ids) ? body.ids.filter((x: unknown) => typeof x === 'string') : [];
     if (ids.length === 0) return apiErr('Tidak ada task yang dipilih.', 400);

@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import {
+  hydrateTicket,
   listTicketMembers,
   mapTicket,
   parseTicketUpdate,
@@ -17,11 +18,12 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   try {
     const ctx = await requirePermission('TIKET_VIEW', req);
     const canManage = await userCanManageTicket(ctx);
-    const row = await prisma.ticket.findFirst({
+    const found = await prisma.ticket.findFirst({
       where: { id: params.id, ...(ticketVisibilityWhere(ctx, canManage) as object) },
       include: ticketDetailInclude,
     });
-    if (!row) return apiErr('Tiket tidak ditemukan.', 404);
+    if (!found) return apiErr('Tiket tidak ditemukan.', 404);
+    const row = await hydrateTicket(found);
     const members = canManage ? await listTicketMembers(ctx.organizationId) : undefined;
     return apiOk({ ticket: mapTicket(row as never), canManage, members });
   } catch (e: unknown) {
@@ -52,18 +54,20 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       });
       if (!member) return apiErr('Pengguna yang ditugaskan bukan anggota aktif kantor ini.', 400);
     }
-    const updated = await prisma.ticket.update({
-      where: { id: row.id },
-      data: {
-        ...(d.status !== undefined ? { status: d.status } : {}),
-        ...(d.priority !== undefined ? { priority: d.priority } : {}),
-        ...(d.category !== undefined ? { category: d.category } : {}),
-        ...(d.title !== undefined ? { title: d.title } : {}),
-        ...(d.description !== undefined ? { description: d.description } : {}),
-        ...(d.hasAssignee ? { assignedToId: d.assignedToId } : {}),
-      },
-      include: ticketDetailInclude,
-    });
+    const updated = await hydrateTicket(
+      await prisma.ticket.update({
+        where: { id: row.id },
+        data: {
+          ...(d.status !== undefined ? { status: d.status } : {}),
+          ...(d.priority !== undefined ? { priority: d.priority } : {}),
+          ...(d.category !== undefined ? { category: d.category } : {}),
+          ...(d.title !== undefined ? { title: d.title } : {}),
+          ...(d.description !== undefined ? { description: d.description } : {}),
+          ...(d.hasAssignee ? { assignedToId: d.assignedToId } : {}),
+        },
+        include: ticketDetailInclude,
+      })
+    );
     return apiOk(mapTicket(updated as never));
   } catch (e: unknown) {
     if (e instanceof Response) return e;

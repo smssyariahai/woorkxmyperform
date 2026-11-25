@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { dispatchTalNotification } from '@/lib/tal/notify';
 
@@ -13,6 +13,7 @@ export const dynamic = 'force-dynamic';
 export async function POST() {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'WRITE');
     const sent = await dispatchTalNotification(prisma, {
       organizationId: ctx.organizationId,
       userId: ctx.userId,

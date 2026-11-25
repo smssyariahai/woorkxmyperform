@@ -21,11 +21,16 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       return apiErr('Data tidak valid.', 422, parsed.error.flatten().fieldErrors);
     }
 
-    const membership = await prisma.membership.findFirst({
+    // Membership TIDAK punya relasi `user` di tenant client — user diambil
+    // terpisah lalu digabung (bentuk hasil sama).
+    const membershipRow = await prisma.membership.findFirst({
       where: { id: params.id, organizationId: ctx.organizationId },
-      include: { user: true, role: true },
+      include: { role: true },
     });
-    if (!membership) return apiErr('Anggota tidak ditemukan.', 404);
+    if (!membershipRow) return apiErr('Anggota tidak ditemukan.', 404);
+    const memberUser = await prisma.user.findUnique({ where: { id: membershipRow.userId } });
+    if (!memberUser) return apiErr('Anggota tidak ditemukan.', 404);
+    const membership = { ...membershipRow, user: memberUser };
     if (membership.userId === ctx.userId) {
       return apiErr('Gunakan halaman Profil untuk mengubah password sendiri.', 409);
     }

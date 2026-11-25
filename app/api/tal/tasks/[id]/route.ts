@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import {
   isMonthLockedForUser,
@@ -21,6 +21,7 @@ async function ownTask(ctx: { organizationId: string; userId: string }, id: stri
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'READ');
     const row = await ownTask(ctx, params.id);
     if (!row) return apiErr('Task tidak ditemukan.', 404);
     return apiOk({ task: mapTalTask(row) });
@@ -34,6 +35,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'WRITE');
     const row = await ownTask(ctx, params.id);
     if (!row) return apiErr('Task tidak ditemukan.', 404);
 
@@ -73,6 +75,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'WRITE');
     const row = await ownTask(ctx, params.id);
     if (!row) return apiErr('Task tidak ditemukan.', 404);
     if (await isTaskPlanLocked(ctx.organizationId, ctx.userId, row)) {

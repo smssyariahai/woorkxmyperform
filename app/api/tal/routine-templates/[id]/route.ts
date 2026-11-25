@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { isTalAdmin } from '@/lib/tal/server';
 
@@ -13,6 +13,7 @@ export const dynamic = 'force-dynamic';
 export async function DELETE(_req: Request, { params }: { params: { id: string } }) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'WRITE');
     if (params.id.startsWith('preset_')) {
       return apiErr('Template preset bawaan tidak bisa dihapus.', 400);
     }

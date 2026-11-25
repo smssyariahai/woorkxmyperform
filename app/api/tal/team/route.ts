@@ -2,7 +2,7 @@
 // GET /api/tal/team?report=team — laporan agregat tim terlihat
 // (porting GET /api/pg/tal/team dan /api/pg/tal/team/report, server.ts:682-711)
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import {
   talTeamMembers,
@@ -17,6 +17,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'READ');
     const url = new URL(req.url);
 
     if (url.searchParams.get('report') === 'team') {

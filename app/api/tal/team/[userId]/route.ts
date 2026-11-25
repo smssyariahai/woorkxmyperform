@@ -3,7 +3,7 @@
 // 404 bila user tidak ada. Laporan orang lain selalu read-only.
 // (Porting GET /api/pg/tal/team/:userId/report.)
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import {
   canViewTalOf,
@@ -17,6 +17,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(_req: Request, { params }: { params: { userId: string } }) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'READ');
     const targetId = params.userId;
     if (!(await canViewTalOf(ctx, targetId))) {
       return apiErr('Anda tidak memiliki akses melihat TAL karyawan ini.', 403);

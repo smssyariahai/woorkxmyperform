@@ -11,11 +11,10 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     const ctx = await requirePermission('TEAM_MANAGE');
-    const [members, invitations] = await Promise.all([
+    const [rows, invitations] = await Promise.all([
       prisma.membership.findMany({
         where: { organizationId: ctx.organizationId },
         include: {
-          user: { select: { id: true, name: true, email: true, avatar: true, status: true, createdAt: true } },
           role: { select: { id: true, name: true } },
         },
         orderBy: { joinedAt: 'asc' },
@@ -26,6 +25,17 @@ export async function GET() {
         orderBy: { createdAt: 'desc' },
       }),
     ]);
+    // Membership TIDAK punya relasi `user` di tenant client — gabung dari
+    // mirror User (bentuk members sama seperti include lama).
+    const userIds = [...new Set(rows.map((r) => r.userId))];
+    const users = userIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, name: true, email: true, avatar: true, status: true, createdAt: true },
+        })
+      : [];
+    const byId = new Map(users.map((u) => [u.id, u]));
+    const members = rows.map((r) => ({ ...r, user: byId.get(r.userId) ?? null }));
     return apiOk({ members, invitations });
   } catch (e: any) {
     if (e instanceof Response) return e;

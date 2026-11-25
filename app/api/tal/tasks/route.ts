@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import {
   isTaskPlanLocked,
@@ -26,6 +26,7 @@ function dateRange(dateStr: string): { gte: Date; lt: Date } {
 export async function GET(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'READ');
     const url = new URL(req.url);
     const q = url.searchParams;
     const type = q.get('type') ?? 'daily';
@@ -74,6 +75,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'WRITE');
     const body = await req.json().catch(() => ({}));
     const { data, error } = parseTaskInput(body, { isCreate: true });
     if (error || !data) return apiErr(error ?? 'Data task tidak valid.', 400);

@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { isTalAdmin } from '@/lib/tal/server';
 import { TAL_DEFAULT_ROUTINE_TEMPLATES, type TalRoutineTemplate } from '@/lib/tal/types';
@@ -39,6 +39,7 @@ function builtinPresets(): TalRoutineTemplate[] {
 export async function GET() {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'READ');
     const rows = await prisma.talRoutineTemplate.findMany({
       where: {
         organizationId: ctx.organizationId,
@@ -66,6 +67,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'WRITE');
     const body = await req.json().catch(() => ({}));
     const name = typeof body.name === 'string' ? body.name.trim() : '';
     if (!name) return apiErr('Nama template wajib diisi.', 400);

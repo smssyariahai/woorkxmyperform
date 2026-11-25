@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { normalizeTalPrefs } from '@/lib/tal/preferences';
 
@@ -12,6 +12,7 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'READ');
     const row = await prisma.notificationPreference.findUnique({
       where: {
         organizationId_userId: { organizationId: ctx.organizationId, userId: ctx.userId },
@@ -33,6 +34,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'WRITE');
     const body = await req.json().catch(() => ({}));
     const tal = normalizeTalPrefs(body.prefs ?? body);
     const existing = await prisma.notificationPreference.findUnique({

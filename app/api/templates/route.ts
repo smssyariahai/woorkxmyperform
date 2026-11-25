@@ -64,12 +64,22 @@ export async function GET(req: Request) {
       ];
     }
 
-    const items = await prisma.replyTemplate.findMany({
+    // ReplyTemplate TIDAK punya relasi `createdBy` di tenant client —
+    // ambil dari mirror User lalu gabung (pola baku Lapisan F).
+    const rows = await prisma.replyTemplate.findMany({
       where,
-      include: { createdBy: { select: { id: true, name: true } } },
       orderBy: [{ usageCount: 'desc' }, { name: 'asc' }],
       take: 100,
     });
+    const authorIds = [...new Set(rows.map((t) => t.createdById).filter((id): id is string => !!id))];
+    const authors = authorIds.length
+      ? await prisma.user.findMany({ where: { id: { in: authorIds } }, select: { id: true, name: true } })
+      : [];
+    const byId = new Map(authors.map((u) => [u.id, u]));
+    const items = rows.map((t) => ({
+      ...t,
+      createdBy: t.createdById ? byId.get(t.createdById) ?? null : null,
+    }));
     const categories = await prisma.replyTemplate.findMany({
       where: { organizationId: ctx.organizationId },
       select: { category: true },
@@ -99,7 +109,11 @@ export async function POST(req: Request) {
         isActive: parsed.data.isActive ?? true,
         createdById: ctx.userId,
       },
-      include: { createdBy: { select: { id: true, name: true } } },
+    });
+    // ReplyTemplate TIDAK punya relasi `createdBy` di tenant client.
+    const author = await prisma.user.findUnique({
+      where: { id: ctx.userId },
+      select: { id: true, name: true },
     });
 
     await audit({
@@ -111,7 +125,7 @@ export async function POST(req: Request) {
       ipAddress: getClientIp(req),
     });
 
-    return apiOk(tpl, 201);
+    return apiOk({ ...tpl, createdBy: author ?? null }, 201);
   } catch (e: any) {
     if (e instanceof Response) return e;
     return apiErr('Gagal membuat template.', 500);

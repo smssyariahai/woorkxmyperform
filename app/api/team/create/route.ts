@@ -57,10 +57,6 @@ export async function POST(req: Request) {
         roleId: role.id,
         status: 'ACTIVE',
       },
-      include: {
-        user: { select: { id: true, name: true, email: true } },
-        role: { select: { name: true } },
-      },
     });
 
     await audit({
@@ -71,7 +67,16 @@ export async function POST(req: Request) {
       description: `Membuat akun ${email} sebagai ${role.name}`,
       ipAddress: getClientIp(req),
     });
-    return apiOk(membership, 201);
+    // Membership TIDAK punya relasi `user`/`role` di tenant client — bentuk
+    // respons sama seperti include lama (Lapisan F).
+    return apiOk(
+      {
+        ...membership,
+        user: { id: user.id, name: user.name, email: user.email },
+        role: { name: role.name },
+      },
+      201
+    );
   } catch (e: any) {
     if (e instanceof Response) return e;
     return apiErr('Gagal membuat akun.', 500);

@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { requireAuth } from '@/lib/auth-helpers';
+import { requireAuth, requireModularAccess } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { isTalAdmin } from '@/lib/tal/server';
 
@@ -24,6 +24,7 @@ const mapObligation = (r: any) => ({
 export async function GET(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'READ');
     const mine = new URL(req.url).searchParams.get('mine') === '1';
     if (mine) {
       const row = await prisma.talUserObligation.findFirst({
@@ -54,6 +55,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const ctx = await requireAuth();
+    await requireModularAccess(ctx, 'tal', 'WRITE');
     if (!isTalAdmin(ctx)) {
       return apiErr('Hanya Administrator yang boleh mengatur kewajiban TAL.', 403);
     }

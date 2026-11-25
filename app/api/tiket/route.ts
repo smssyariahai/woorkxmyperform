@@ -2,6 +2,8 @@ import { prisma } from '@/lib/db';
 import { requirePermission } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import {
+  hydrateTicket,
+  hydrateTickets,
   mapTicket,
   notifyTicketCreated,
   parseTicketInput,
@@ -46,12 +48,14 @@ export async function GET(req: Request) {
         where.OR = searchOr;
       }
     }
-    const rows = await prisma.ticket.findMany({
-      where: where as never,
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-      include: ticketInclude,
-    });
+    const rows = await hydrateTickets(
+      await prisma.ticket.findMany({
+        where: where as never,
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        include: ticketInclude,
+      })
+    );
     return apiOk({ tickets: rows.map((r) => mapTicket(r as never)), canManage });
   } catch (e: unknown) {
     if (e instanceof Response) return e;
@@ -67,7 +71,7 @@ export async function POST(req: Request) {
     const parsed = parseTicketInput(body);
     if (parsed.error) return apiErr(parsed.error, 400);
     const d = parsed.data!;
-    const saved = await prisma.ticket.create({
+    const created = await prisma.ticket.create({
       data: {
         organizationId: ctx.organizationId,
         createdById: ctx.userId,
@@ -78,7 +82,8 @@ export async function POST(req: Request) {
       },
       include: ticketInclude,
     });
-    await notifyTicketCreated(saved).catch(() => {});
+    await notifyTicketCreated(created).catch(() => {});
+    const saved = await hydrateTicket(created);
     return apiOk(mapTicket(saved as never), 201);
   } catch (e: unknown) {
     if (e instanceof Response) return e;

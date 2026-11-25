@@ -35,19 +35,24 @@ export async function GET(req: Request) {
   if (!target?.avatar || !target.avatar.startsWith('/api/users/avatar')) {
     return new Response('Not found', { status: 404 });
   }
-  const allowed =
-    ctx.userId === userId ||
-    ctx.isSuperAdmin ||
-    (await prisma.membership.findFirst({
-      where: {
-        userId: ctx.userId,
-        status: 'ACTIVE',
-        organization: {
-          memberships: { some: { userId, status: 'ACTIVE' } },
+  // Membership TIDAK punya relasi `organization` di tenant client —
+  // selesaikan dulu daftar org tempat target anggota aktif, lalu cek
+  // requester anggota aktif di org yang sama (Lapisan F).
+  const targetOrgs = await prisma.membership.findMany({
+    where: { userId, status: 'ACTIVE' },
+    select: { organizationId: true },
+  });
+  const sharedOrg = targetOrgs.length
+    ? await prisma.membership.findFirst({
+        where: {
+          userId: ctx.userId,
+          status: 'ACTIVE',
+          organizationId: { in: targetOrgs.map((m) => m.organizationId) },
         },
-      },
-      select: { id: true },
-    })) !== null;
+        select: { id: true },
+      })
+    : null;
+  const allowed = ctx.userId === userId || ctx.isSuperAdmin || sharedOrg !== null;
   if (!allowed) {
     return new Response('Not found', { status: 404 });
   }

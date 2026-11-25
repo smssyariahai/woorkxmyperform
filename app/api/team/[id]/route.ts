@@ -10,11 +10,16 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   try {
     const ctx = await requirePermission('TEAM_MANAGE');
     const body = await req.json();
-    const membership = await prisma.membership.findFirst({
+    // Membership TIDAK punya relasi `user` di tenant client — user diambil
+    // terpisah lalu digabung (bentuk hasil sama).
+    const membershipRow = await prisma.membership.findFirst({
       where: { id: params.id, organizationId: ctx.organizationId },
-      include: { user: true, role: true },
+      include: { role: true },
     });
-    if (!membership) return apiErr('Anggota tidak ditemukan.', 404);
+    if (!membershipRow) return apiErr('Anggota tidak ditemukan.', 404);
+    const memberUser = await prisma.user.findUnique({ where: { id: membershipRow.userId } });
+    if (!memberUser) return apiErr('Anggota tidak ditemukan.', 404);
+    const membership = { ...membershipRow, user: memberUser };
     if (membership.userId === ctx.userId) {
       return apiErr('Tidak dapat mengubah akun sendiri.', 409);
     }
@@ -45,11 +50,16 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
       await prisma.user.update({ where: { id: membership.userId }, data: { status: body.status } });
     }
 
-    const updated = await prisma.membership.update({
+    const updatedRow = await prisma.membership.update({
       where: { id: membership.id },
       data,
-      include: { user: { select: { id: true, name: true, email: true } }, role: true },
+      include: { role: true },
     });
+    const updatedUser = await prisma.user.findUnique({
+      where: { id: updatedRow.userId },
+      select: { id: true, name: true, email: true },
+    });
+    const updated = { ...updatedRow, user: updatedUser ?? null };
     await audit({
       organizationId: ctx.organizationId,
       userId: ctx.userId,
@@ -69,11 +79,16 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   try {
     const ctx = await requirePermission('TEAM_MANAGE');
-    const membership = await prisma.membership.findFirst({
+    // Membership TIDAK punya relasi `user` di tenant client — user diambil
+    // terpisah lalu digabung (bentuk hasil sama).
+    const membershipRow = await prisma.membership.findFirst({
       where: { id: params.id, organizationId: ctx.organizationId },
-      include: { user: true, role: true },
+      include: { role: true },
     });
-    if (!membership) return apiErr('Anggota tidak ditemukan.', 404);
+    if (!membershipRow) return apiErr('Anggota tidak ditemukan.', 404);
+    const memberUser = await prisma.user.findUnique({ where: { id: membershipRow.userId } });
+    if (!memberUser) return apiErr('Anggota tidak ditemukan.', 404);
+    const membership = { ...membershipRow, user: memberUser };
     if (membership.userId === ctx.userId) return apiErr('Tidak dapat menghapus akun sendiri.', 409);
     if (membership.role.name === 'OWNER' && ctx.role !== 'OWNER') {
       return apiErr('Hanya owner yang dapat menghapus akun owner lain.', 403);
