@@ -47,8 +47,8 @@ import type {
   BadgeLevel,
   BadgeMetricType,
   BadgeLevelConfig,
-} from '@/lib/tal/gamification';
-import { BADGE_TIERS } from '@/lib/tal/gamification';
+} from '@/lib/tal/gamification-shared';
+import { BADGE_TIERS } from '@/lib/tal/gamification-shared';
 
 interface TalBadgeManagementTabProps {
   canWrite: boolean;

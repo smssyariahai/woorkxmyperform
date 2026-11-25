@@ -1,5 +1,8 @@
 import bcrypt from 'bcryptjs';
-import { prisma } from '@/lib/db';
+// EsignProfile adalah model platform global (sengaja lintas org —
+// signature + PIN milik user, bukan milik tenant) dan TIDAK ADA di
+// skema tenant: query ke sini harus lewat legacyPrisma.
+import { legacyPrisma as prisma } from '@/lib/db';
 import { checkRateLimit, peekCount, peekRateLimit, resetRateLimit } from './rate-limit';
 
 /**

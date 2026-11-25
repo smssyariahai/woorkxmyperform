@@ -23,7 +23,7 @@ import type {
   TalBadgeDto,
   UserBadgeProgressDto,
   UserGamificationSummary,
-} from '@/lib/tal/gamification';
+} from '@/lib/tal/gamification-shared';
 import { TalBadgeEmblem } from '../gamification/TalBadgeEmblem';
 import { TalGamificationPopupModal, type PopupBadgeData } from '../gamification/TalGamificationPopupModal';
 

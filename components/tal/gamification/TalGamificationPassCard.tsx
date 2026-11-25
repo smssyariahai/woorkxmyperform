@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Wifi, Trophy, Flame } from 'lucide-react';
-import { BadgeTier } from '@/lib/tal/gamification';
+import { BadgeTier } from '@/lib/tal/gamification-shared';
 import { TalBadgeEmblem } from './TalBadgeEmblem';
 
 interface TalGamificationPassCardProps {

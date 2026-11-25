@@ -398,16 +398,38 @@ export interface NotifyResult {
 export async function notifyEsignEvent(input: NotifyInput): Promise<NotifyResult> {
   const counts: NotifyResult = { attempted: 0, sent: 0, failed: 0, skipped: 0 };
   try {
-    const doc = (await prisma.esignDocument.findUnique({
+    // EsignDocument TIDAK punya relasi `createdBy` dan EsignSigner TIDAK
+    // punya relasi `user` di tenant client — keduanya diambil terpisah
+    // dari mirror User lalu digabung (bentuk DocWithRelations sama).
+    const docRow = await prisma.esignDocument.findUnique({
       where: { id: input.documentId },
-      include: {
-        signers: {
-          include: { user: { select: { id: true, name: true, phone: true } } },
-          orderBy: { signingOrder: 'asc' },
+      include: { signers: { orderBy: { signingOrder: 'asc' } } },
+    });
+    let doc: DocWithRelations | null = null;
+    if (docRow) {
+      const docUserIds = [...new Set([docRow.createdById, ...docRow.signers.map((s) => s.userId)])];
+      const docUsers = await prisma.user.findMany({
+        where: { id: { in: docUserIds } },
+        select: { id: true, name: true, phone: true },
+      });
+      const docUserById = new Map(docUsers.map((u) => [u.id, u]));
+      doc = {
+        ...docRow,
+        signers: docRow.signers.map((s) => ({
+          ...s,
+          user: docUserById.get(s.userId) ?? {
+            id: s.userId,
+            name: s.signerName,
+            phone: s.signerPhone ?? null,
+          },
+        })),
+        createdBy: docUserById.get(docRow.createdById) ?? {
+          id: docRow.createdById,
+          name: 'Pengguna',
+          phone: null,
         },
-        createdBy: { select: { id: true, name: true, phone: true } },
-      },
-    })) as DocWithRelations | null;
+      } as unknown as DocWithRelations;
+    }
     if (!doc) {
       console.error('[esign-notify] dokumen tidak ditemukan:', input.documentId);
       return counts;

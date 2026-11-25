@@ -6,65 +6,98 @@ import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { Card } from '@/components/ui/primitives';
 import { Field, Input } from '@/components/ui/input';
-import { ArrowLeft, ArrowRight, Building2, Check, KeyRound, Receipt, Wallet } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Building2, Check, KeyRound, Wallet } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatIDR } from '@/lib/modular';
 
-interface PriceRow {
-  moduleKey: string;
-  monthlyPerUser: number;
-  yearlyPerUser: number;
+/* Katalog paket (sama dengan GET /api/public/pricing — getCatalogForRegistration). */
+interface Catalog {
+  userTiers: { id: string; name: string; minStorageGb: number; monthlyPrice: number | null; yearlyPrice: number | null }[];
+  storageTiers: { id: string; name: string; capacityGb: number | null; monthlyPrice: number | null; yearlyPrice: number | null }[];
+  modules: { moduleKey: string; name: string; monthlyPrice: number | null; yearlyPrice: number | null }[];
+  settings: { ppnRateBps: number; invoiceValidityHours: number; trialEnabled: boolean };
 }
-
-const MODULE_LABELS: Record<string, string> = {
-  chat: 'Chat (Inbox, CRM, Broadcast, Saluran, Bot)',
-  hris: 'HRIS (HR, Kantor Virtual, Divisi, E-Sign)',
-  audit: 'Audit Trail Log',
-};
 
 export function OfficeWizard() {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [busy, setBusy] = useState(false);
-  const [prices, setPrices] = useState<PriceRow[]>([]);
+  const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [done, setDone] = useState<any | null>(null);
 
   // Langkah 1 — detail kantor
   const [office, setOffice] = useState({ name: '', description: '', email: '', phone: '', address: '' });
   // Langkah 2 — admin kantor
   const [admin, setAdmin] = useState({ adminName: '', adminEmail: '', adminPassword: '' });
-  // Langkah 3 — langganan
-  const [modules, setModules] = useState<string[]>(['chat', 'hris', 'audit']);
-  const [userQuota, setUserQuota] = useState(10);
+  // Langkah 3 — paket langganan (Bab 9)
+  const [userTierId, setUserTierId] = useState('');
+  const [storageTierId, setStorageTierId] = useState('');
+  const [modules, setModules] = useState<string[]>([]);
   const [billingCycle, setBillingCycle] = useState<'MONTHLY' | 'YEARLY'>('MONTHLY');
-  const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10));
 
   useEffect(() => {
-    fetch('/api/super/module-prices')
+    fetch('/api/public/pricing')
       .then((r) => r.json())
       .then((j) => {
-        if (j.success) setPrices(j.data);
+        if (j.success) setCatalog(j.data);
       })
       .catch(() => {});
   }, []);
 
-  const priceByKey = useMemo(() => new Map(prices.map((p) => [p.moduleKey, p])), [prices]);
+  const selectedUserTier = useMemo(
+    () => catalog?.userTiers.find((t) => t.id === userTierId) ?? null,
+    [catalog, userTierId],
+  );
+  const selectedStorageTier = useMemo(
+    () => catalog?.storageTiers.find((t) => t.id === storageTierId) ?? null,
+    [catalog, storageTierId],
+  );
 
-  const total = useMemo(() => {
-    const perUser = modules.reduce((sum, key) => {
-      const p = priceByKey.get(key);
-      if (!p) return sum;
-      return sum + (billingCycle === 'YEARLY' ? p.yearlyPerUser : p.monthlyPerUser);
-    }, 0);
-    return perUser * Math.max(0, userQuota);
-  }, [modules, userQuota, billingCycle, priceByKey]);
+  /* Storage yang tersedia: hanya opsi capacityGb >= minimum tier pengguna. */
+  const storageOptions = useMemo(() => {
+    if (!catalog) return [];
+    const min = selectedUserTier?.minStorageGb ?? 0;
+    return catalog.storageTiers.map((t) => ({
+      tier: t,
+      disabled: t.capacityGb !== null && t.capacityGb < min,
+    }));
+  }, [catalog, selectedUserTier]);
 
-  const periodEnd = useMemo(() => {
-    const d = new Date(startDate || new Date());
-    if (billingCycle === 'YEARLY') d.setFullYear(d.getFullYear() + 1);
-    else d.setMonth(d.getMonth() + 1);
-    return d.toISOString().slice(0, 10);
-  }, [startDate, billingCycle]);
+  /* Ringkasan harga live (dasar + PPN + total) per siklus yang dipilih. */
+  const priceSummary = useMemo(() => {
+    if (!catalog) return null;
+    const priceOf = (row: { monthlyPrice: number | null; yearlyPrice: number | null }) =>
+      billingCycle === 'YEARLY' ? row.yearlyPrice : row.monthlyPrice;
+    const items: { label: string; amount: number | null }[] = [];
+    let base = 0;
+    let custom = false;
+    if (selectedUserTier) {
+      const a = priceOf(selectedUserTier);
+      items.push({ label: selectedUserTier.name, amount: a });
+      if (a === null) custom = true; else base += a;
+    }
+    if (selectedStorageTier) {
+      const a = priceOf(selectedStorageTier);
+      items.push({ label: selectedStorageTier.name, amount: a });
+      if (a === null) custom = true; else base += a;
+    }
+    for (const key of modules) {
+      const m = catalog.modules.find((x) => x.moduleKey === key);
+      if (m) {
+        const a = priceOf(m);
+        items.push({ label: m.name, amount: a });
+        if (a !== null) base += a;
+      }
+    }
+    const ppn = Math.round((base * (catalog.settings.ppnRateBps ?? 1100)) / 10000);
+    return { items, base, ppn, total: base + ppn, custom };
+  }, [catalog, selectedUserTier, selectedStorageTier, modules, billingCycle]);
+
+  const cycleLabel = billingCycle === 'YEARLY' ? 'tahunan' : 'bulanan';
+
+  /* Trial dimatikan Master (Pengaturan Sistem) → tenant baru langsung
+     berlangganan (berbayar, wajib ≥1 modul). */
+  const trialEnabled = catalog?.settings.trialEnabled ?? true;
 
   function toggleModule(key: string) {
     setModules((cur) => (cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key]));
@@ -87,8 +120,18 @@ export function OfficeWizard() {
     return true;
   }
 
+  function validStep3() {
+    if (!userTierId) { toast.error('Pilih tier pengguna.'); return false; }
+    if (!storageTierId) { toast.error('Pilih tier storage.'); return false; }
+    if (!trialEnabled && modules.length === 0) {
+      toast.error('Trial sedang dinonaktifkan — langganan berbayar wajib memilih minimal 1 modul berbayar.');
+      return false;
+    }
+    return true;
+  }
+
   async function submit() {
-    if (userQuota < 1) { toast.error('Kuota karyawan minimal 1.'); return; }
+    if (!validStep3()) return;
     setBusy(true);
     try {
       const r = await fetch('/api/super/offices', {
@@ -97,16 +140,16 @@ export function OfficeWizard() {
         body: JSON.stringify({
           ...office,
           ...admin,
+          userTierId,
+          storageTierId,
           modules,
-          userQuota,
           billingCycle,
-          startDate,
         }),
       });
       const j = await r.json();
       if (!j.success) throw new Error(j.message);
       setDone(j.data);
-      toast.success(`Kantor "${office.name}" dibuat. Invoice ${j.data.invoice.number} terbit.`);
+      toast.success(trialEnabled ? `Kantor "${office.name}" dibuat — trial gratis 14 hari.` : `Kantor "${office.name}" dibuat — langganan langsung aktif.`);
     } catch (e: any) {
       toast.error(e.message || 'Gagal membuat kantor.');
     } finally {
@@ -117,7 +160,7 @@ export function OfficeWizard() {
   const steps = [
     { n: 1, label: 'Detail Kantor', icon: Building2 },
     { n: 2, label: 'Admin Kantor', icon: KeyRound },
-    { n: 3, label: 'Langganan & Harga', icon: Wallet },
+    { n: 3, label: 'Paket Langganan', icon: Wallet },
   ];
 
   if (done) {
@@ -132,18 +175,44 @@ export function OfficeWizard() {
             Situs publik: <b className="text-ink">{done.siteUrl}</b>
             {done.dnsOk ? '' : ` (DNS gagal: ${done.dnsError || 'periksa nanti'})`}
             <br />
-            Langganan berstatus <b className="text-amber-600">Menunggu Pembayaran</b> — admin kantor
-            baru bisa login setelah invoice ditandai lunas.
+            {done.subscription.trialEndsAt ? (
+              <>
+                Trial <b className="text-ink">gratis 14 hari</b> sampai{' '}
+                <b className="text-ink">{new Date(done.subscription.trialEndsAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</b>
+                {' '}— admin kantor bisa langsung login, tanpa menunggu invoice.
+              </>
+            ) : (
+              <>
+                Langganan <b className="text-ink">aktif</b> sampai{' '}
+                <b className="text-ink">{new Date(done.subscription.currentPeriodEndsAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</b>
+                {' '}— admin kantor bisa langsung login, tanpa menunggu invoice.
+              </>
+            )}
           </p>
           <div className="rounded-btn border border-line bg-canvas p-4 text-left text-[13.5px] space-y-1.5">
-            <p className="flex justify-between"><span className="text-muted">Invoice</span><b>{done.invoice.number}</b></p>
-            <p className="flex justify-between"><span className="text-muted">Total</span><b>{formatIDR(done.invoice.total)}</b></p>
-            <p className="flex justify-between"><span className="text-muted">Jatuh tempo</span><b>{new Date(done.invoice.dueDate).toLocaleDateString('id-ID')}</b></p>
-            <p className="flex justify-between"><span className="text-muted">Periode</span><b>{new Date(done.subscription.startDate).toLocaleDateString('id-ID')} – {new Date(done.subscription.endDate).toLocaleDateString('id-ID')}</b></p>
+            <p className="flex justify-between"><span className="text-muted">Kode tenant</span><b>{done.tenantCode}</b></p>
+            <p className="flex justify-between"><span className="text-muted">Tier pengguna</span><b>{selectedUserTier?.name ?? '—'}</b></p>
+            <p className="flex justify-between"><span className="text-muted">Tier storage</span><b>{selectedStorageTier?.name ?? '—'}</b></p>
+            <p className="flex justify-between"><span className="text-muted">Modul berbayar</span><b>{modules.length > 0 ? modules.map((k) => catalog?.modules.find((m) => m.moduleKey === k)?.name ?? k).join(', ') : 'Tidak ada (hanya modul non-berbayar)'}</b></p>
+            {priceSummary && !priceSummary.custom && (
+              <p className="flex justify-between border-t border-line pt-2">
+                <span className="text-muted">Total {cycleLabel} (setelah trial)</span>
+                <b>{formatIDR(priceSummary.total)}</b>
+              </p>
+            )}
+            {priceSummary?.custom && (
+              <p className="text-muted">Harga khusus — total akan dinegosiasikan dengan Master.</p>
+            )}
           </div>
+          {done.packageSyncWarning && (
+            <div className="rounded-btn border border-amber-200 bg-amber-50 px-4 py-3 text-left text-[13px]">
+              <p className="font-bold text-ink">Modul paket belum tersinkron</p>
+              <p className="mt-1 text-muted">{done.packageSyncWarning} Atur ulang paket di halaman tenant.</p>
+            </div>
+          )}
           <div className="flex justify-center gap-2">
-            <Link href={`/admin/invoices/${done.invoice.id}`} className="btn-primary !py-2 text-[13px]">
-              <Receipt className="h-4 w-4" /> Lihat Invoice
+            <Link href={`/admin/tenants/${done.id}`} className="btn-primary !py-2 text-[13px]">
+              Lihat Tenant
             </Link>
             <Link href="/admin/offices" className="btn-ghost !py-2 text-[13px]">Kembali ke Daftar Kantor</Link>
           </div>
@@ -159,7 +228,7 @@ export function OfficeWizard() {
           <ArrowLeft className="h-4 w-4" /> Kembali ke Daftar Kantor
         </Link>
         <h1 className="text-[22px] font-bold text-ink">Buat Kantor Baru</h1>
-        <p className="text-sm text-muted">Kantor dibuat beserta admin, langganan modul, dan invoice pertama.</p>
+        <p className="text-sm text-muted">Kantor dibuat beserta admin OWNER dan paket langganan. {trialEnabled ? 'Trial gratis 14 hari, tanpa invoice.' : 'Trial sedang dinonaktifkan — langganan langsung aktif.'}</p>
       </div>
 
       {/* Indikator langkah */}
@@ -190,7 +259,7 @@ export function OfficeWizard() {
             <Field label="Deskripsi"><Input value={office.description} onChange={(e) => setOffice({ ...office, description: e.target.value })} placeholder="Deskripsi singkat kantor" /></Field>
             <div className="grid sm:grid-cols-2 gap-4">
               <Field label="Email kantor"><Input type="email" value={office.email} onChange={(e) => setOffice({ ...office, email: e.target.value })} placeholder="kantor@contoh.id" /></Field>
-              <Field label="Telepon / WhatsApp"><Input value={office.phone} onChange={(e) => setOffice({ ...office, phone: e.target.value })} placeholder="08xxxxxxxxxx" /></Field>
+              <Field label="Telepon / WhatsApp"><Input inputMode="numeric" autoComplete="tel" value={office.phone} onChange={(e) => setOffice({ ...office, phone: e.target.value.replace(/\D/g, '') })} placeholder="08xxxxxxxxxx" /></Field>
             </div>
             <Field label="Alamat"><Input value={office.address} onChange={(e) => setOffice({ ...office, address: e.target.value })} placeholder="Alamat kantor" /></Field>
           </>
@@ -198,7 +267,7 @@ export function OfficeWizard() {
 
         {step === 2 && (
           <>
-            <p className="text-[13px] text-muted">Akun ini menjadi pemilik (OWNER) kantor dan bisa login setelah invoice pertama lunas.</p>
+            <p className="text-[13px] text-muted">Akun ini menjadi pemilik (OWNER) kantor dan bisa langsung login setelah kantor dibuat.</p>
             <Field label="Nama lengkap *"><Input value={admin.adminName} onChange={(e) => setAdmin({ ...admin, adminName: e.target.value })} placeholder="Nama admin" /></Field>
             <Field label="Email *"><Input type="email" value={admin.adminEmail} onChange={(e) => setAdmin({ ...admin, adminEmail: e.target.value })} placeholder="admin@kantor.id" /></Field>
             <Field label="Password awal *"><Input type="password" value={admin.adminPassword} onChange={(e) => setAdmin({ ...admin, adminPassword: e.target.value })} placeholder="Min. 8 karakter" /></Field>
@@ -207,62 +276,108 @@ export function OfficeWizard() {
 
         {step === 3 && (
           <>
-            <div>
-              <p className="text-[13px] font-semibold text-ink mb-2">Modul berbayar yang digunakan</p>
-              <div className="space-y-2">
-                {Object.entries(MODULE_LABELS).map(([key, label]) => {
-                  const p = priceByKey.get(key);
-                  const checked = modules.includes(key);
-                  return (
-                    <label key={key} className={cn('flex items-center gap-3 rounded-btn border px-4 py-3 cursor-pointer transition-colors', checked ? 'border-brand bg-brand-50/60' : 'border-line')}>
-                      <input type="checkbox" checked={checked} onChange={() => toggleModule(key)} className="h-4 w-4 accent-brand" />
-                      <span className="flex-1 min-w-0">
-                        <span className="block text-[14px] font-medium text-ink">{label}</span>
-                        <span className="block text-[12px] text-muted">
-                          {p ? `${formatIDR(p.monthlyPerUser)}/user/bulan · ${formatIDR(p.yearlyPerUser)}/user/tahun` : 'Memuat harga…'}
-                        </span>
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-              <p className="mt-2 text-[12px] text-muted">Dashboard & Setting selalu ikut tanpa biaya.</p>
-            </div>
-
-            <div className="grid sm:grid-cols-2 gap-4">
-              <Field label="Kuota karyawan (jumlah user) *">
-                <Input type="number" min={1} value={userQuota} onChange={(e) => setUserQuota(Number(e.target.value))} />
-              </Field>
-              <Field label="Siklus langganan">
-                <select value={billingCycle} onChange={(e) => setBillingCycle(e.target.value as 'MONTHLY' | 'YEARLY')} className="input w-full">
-                  <option value="MONTHLY">Bulanan</option>
-                  <option value="YEARLY">Tahunan (hemat 2 bulan)</option>
+            <div className="rounded-input border border-line p-4 space-y-3">
+              <h3 className="text-[14px] font-bold text-ink">Pilih paket</h3>
+              <Field label="Batas jumlah pengguna">
+                <select
+                  className="input"
+                  value={userTierId}
+                  onChange={(e) => { setUserTierId(e.target.value); setStorageTierId(''); }}
+                  disabled={!catalog}
+                >
+                  <option value="">{catalog ? '— Pilih tier pengguna —' : 'Memuat katalog…'}</option>
+                  {catalog?.userTiers.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}{t.monthlyPrice !== null ? ` — ${formatIDR(t.monthlyPrice)}/bln` : ' — Harga khusus'}
+                    </option>
+                  ))}
                 </select>
               </Field>
-            </div>
-            <Field label="Tanggal mulai langganan">
-              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-            </Field>
-
-            <div className="rounded-btn border border-line bg-canvas p-4 text-[13.5px] space-y-1.5">
-              <p className="font-semibold text-ink">Ringkasan biaya</p>
-              {modules.length === 0 && <p className="text-muted">Tidak ada modul berbayar — invoice Rp0.</p>}
-              {modules.map((key) => {
-                const p = priceByKey.get(key);
-                if (!p) return null;
-                const unit = billingCycle === 'YEARLY' ? p.yearlyPerUser : p.monthlyPerUser;
-                return (
-                  <p key={key} className="flex justify-between">
-                    <span className="text-muted">{MODULE_LABELS[key]} × {userQuota} user</span>
-                    <b>{formatIDR(unit * userQuota)}</b>
+              <Field label="Batas storage">
+                <select className="input" value={storageTierId} onChange={(e) => setStorageTierId(e.target.value)} disabled={!catalog || !userTierId}>
+                  <option value="">{!userTierId ? 'Pilih tier pengguna dulu' : '— Pilih tier storage —'}</option>
+                  {storageOptions.map(({ tier, disabled }) => (
+                    <option key={tier.id} value={tier.id} disabled={disabled}>
+                      {tier.name}{tier.monthlyPrice !== null ? ` — ${formatIDR(tier.monthlyPrice)}/bln` : ' — Harga khusus'}
+                      {disabled ? ' (di bawah minimum tier pengguna)' : ''}
+                    </option>
+                  ))}
+                </select>
+                {selectedUserTier && (
+                  <p className="mt-1 text-[12px] text-muted">
+                    Storage minimum untuk tier {selectedUserTier.name} adalah {selectedUserTier.minStorageGb} GB.
                   </p>
-                );
-              })}
-              <p className="flex justify-between border-t border-line pt-2 text-[15px]">
-                <span className="font-semibold">Total {billingCycle === 'YEARLY' ? 'tahunan' : 'bulanan'}</span>
-                <b className="text-brand">{formatIDR(total)}</b>
-              </p>
-              <p className="text-[12px] text-muted">Periode: {startDate} – {periodEnd}. Invoice jatuh tempo 7 hari setelah dibuat.</p>
+                )}
+              </Field>
+              <Field label="Modul berbayar yang dipakai">
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                  {catalog?.modules.map((m) => (
+                    <label key={m.moduleKey} className="flex items-start gap-2.5 text-[13px] text-ink cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-4 w-4 rounded accent-[#087BFF]"
+                        checked={modules.includes(m.moduleKey)}
+                        onChange={() => toggleModule(m.moduleKey)}
+                      />
+                      <span>
+                        <span className="font-semibold">{m.name}</span>
+                        <span className="text-muted"> — {m.monthlyPrice !== null ? `${formatIDR(m.monthlyPrice)}/bln` : 'Harga khusus'}</span>
+                      </span>
+                    </label>
+                  ))}
+                  {!catalog && <p className="text-[13px] text-muted">Memuat modul…</p>}
+                </div>
+                <p className="mt-2 text-[12px] text-muted">Modul non-berbayar (Dashboard, Setting, Pengumuman, Tiket, E-Sign, dan lainnya) selalu ikut tanpa biaya.</p>
+              </Field>
+              <Field label="Siklus pembayaran">
+                <div className="flex gap-2">
+                  {(['MONTHLY', 'YEARLY'] as const).map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setBillingCycle(c)}
+                      className={
+                        'flex-1 rounded-input border px-3 py-2.5 text-[13px] font-semibold transition-colors ' +
+                        (billingCycle === c ? 'border-brand bg-brand/10 text-brand' : 'border-line text-muted hover:text-ink')
+                      }
+                    >
+                      {c === 'MONTHLY' ? 'Bulanan' : 'Tahunan (hemat 2 bulan)'}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+
+              {/* Ringkasan harga live */}
+              {priceSummary && (selectedUserTier || selectedStorageTier || modules.length > 0) && (
+                <div className="rounded-input bg-canvas px-4 py-3 text-[13px]">
+                  <p className="font-bold text-ink">Ringkasan harga {cycleLabel}</p>
+                  {priceSummary.items.map((it) => (
+                    <p key={it.label} className="mt-1 flex justify-between text-muted">
+                      <span>{it.label}</span>
+                      <span>{it.amount === null ? 'Harga khusus' : formatIDR(it.amount)}</span>
+                    </p>
+                  ))}
+                  {priceSummary.custom ? (
+                    <p className="mt-2 font-semibold text-ink">Harga khusus (hubungi Master) — total akan dinegosiasikan.</p>
+                  ) : (
+                    <>
+                      <p className="mt-1 flex justify-between text-muted">
+                        <span>PPN ({catalog ? Math.round((catalog.settings.ppnRateBps ?? 1100) / 100) : 11}%)</span>
+                        <span>{formatIDR(priceSummary.ppn)}</span>
+                      </p>
+                      <p className="mt-2 flex justify-between border-t border-line pt-2 font-bold text-ink">
+                        <span>Total {cycleLabel}</span>
+                        <span>{formatIDR(priceSummary.total)}</span>
+                      </p>
+                      <p className="mt-1 text-muted">
+                        {trialEnabled
+                          ? 'Gratis selama 14 hari trial — tagihan pertama diterbitkan setelah trial berakhir.'
+                          : 'Trial dinonaktifkan — langganan langsung aktif. Tagihan perpanjangan diterbitkan 7 hari sebelum periode berakhir.'}
+                      </p>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </>
         )}
@@ -287,7 +402,7 @@ export function OfficeWizard() {
             </button>
           ) : (
             <button onClick={submit} disabled={busy} className="btn-primary !py-2 text-[13px]">
-              {busy ? 'Menyimpan…' : 'Buat Kantor & Terbitkan Invoice'}
+              {busy ? 'Menyimpan…' : 'Buat Kantor'}
             </button>
           )}
         </div>

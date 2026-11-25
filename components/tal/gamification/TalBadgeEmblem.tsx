@@ -1,5 +1,5 @@
 import React from 'react';
-import { BadgeTier } from '@/lib/tal/gamification';
+import { BadgeTier } from '@/lib/tal/gamification-shared';
 
 export type EmblemVariant = 'shield' | 'winged' | 'coin' | 'stars';
 export type EmblemSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';

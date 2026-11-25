@@ -18,7 +18,7 @@ import {
   BADGE_TIERS,
   BadgeLevel,
   BadgeTier
-} from '@/lib/tal/gamification';
+} from '@/lib/tal/gamification-shared';
 import { TalBadgeEmblem } from './gamification/TalBadgeEmblem';
 import { TalGamificationPopupModal, PopupBadgeData } from './gamification/TalGamificationPopupModal';
 import { TalGamificationPassCard } from './gamification/TalGamificationPassCard';

@@ -176,16 +176,54 @@ export function mapArchiveDocument(row: ArchiveDocumentRow) {
   };
 }
 
+/**
+ * Include standar kategori/dokumen.
+ *
+ * ArchiveCategory TIDAK punya relasi `createdBy` dan ArchiveDocument
+ * TIDAK punya relasi `uploader` di tenant client — hanya `parent`,
+ * `_count`, dan `category` (relasi antar-model tenant) yang aman
+ * di-include. Nama pembuat/pengunggah dilengkapi
+ * `hydrateArchiveCategories` / `hydrateArchiveDocuments` di bawah
+ * (lookup mirror User terpisah, pola baku Lapisan F).
+ */
 export const archiveCategoryInclude = {
-  createdBy: { select: { name: true } },
   parent: { select: { id: true, name: true } },
   _count: { select: { documents: true, children: true } },
 } as const;
 
 export const archiveDocumentInclude = {
   category: { select: { id: true, name: true } },
-  uploader: { select: { name: true, email: true } },
 } as const;
+
+/** Lengkapi baris kategori dengan `createdBy` dari mirror User. */
+export async function hydrateArchiveCategories<T extends { createdById: string | null }>(
+  rows: T[]
+): Promise<Array<T & { createdBy: { name: string } | null }>> {
+  const ids = [...new Set(rows.map((r) => r.createdById).filter((id): id is string => !!id))];
+  const users = ids.length
+    ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })
+    : [];
+  const byId = new Map(users.map((u) => [u.id, u]));
+  return rows.map((r) => ({
+    ...r,
+    createdBy: r.createdById ? byId.get(r.createdById) ?? null : null,
+  })) as Array<T & { createdBy: { name: string } | null }>;
+}
+
+/** Lengkapi baris dokumen dengan `uploader` dari mirror User. */
+export async function hydrateArchiveDocuments<T extends { uploaderId: string }>(
+  rows: T[]
+): Promise<Array<T & { uploader: { name: string; email: string } | null }>> {
+  const ids = [...new Set(rows.map((r) => r.uploaderId).filter((id): id is string => !!id))];
+  const users = ids.length
+    ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, email: true } })
+    : [];
+  const byId = new Map(users.map((u) => [u.id, u]));
+  return rows.map((r) => ({
+    ...r,
+    uploader: byId.get(r.uploaderId) ?? null,
+  })) as Array<T & { uploader: { name: string; email: string } | null }>;
+}
 
 // ---------------------------------------------------------------------------
 // Validasi input kategori
@@ -430,10 +468,20 @@ export async function deleteEarsipFile(storedPath: string | null | undefined): P
 
 /** Anggota aktif kantor (id + nama) — untuk filter pengunggah di halaman. */
 export async function listEarsipUploaders(organizationId: string): Promise<Array<{ id: string; name: string }>> {
+  // Membership TIDAK punya relasi `user` di tenant client — user diambil
+  // terpisah lalu digabung (urutan joinedAt dipertahankan).
   const rows = await prisma.membership.findMany({
     where: { organizationId, status: 'ACTIVE' },
-    include: { user: { select: { id: true, name: true } } },
+    select: { userId: true },
     orderBy: { joinedAt: 'asc' },
   });
-  return rows.map((r) => ({ id: r.user.id, name: r.user.name }));
+  const userIds = [...new Set(rows.map((r) => r.userId))];
+  const users = userIds.length
+    ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })
+    : [];
+  const userById = new Map(users.map((u) => [u.id, u]));
+  return rows
+    .map((r) => userById.get(r.userId))
+    .filter((u): u is { id: string; name: string } => !!u)
+    .map((u) => ({ id: u.id, name: u.name }));
 }

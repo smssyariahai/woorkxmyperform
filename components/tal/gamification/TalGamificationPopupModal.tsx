@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { X, Share2, Check, Sparkles } from 'lucide-react';
 import { TalBadgeEmblem } from './TalBadgeEmblem';
-import { BadgeTier, BADGE_TIERS, BadgeLevel } from '@/lib/tal/gamification';
+import { BadgeTier, BADGE_TIERS, BadgeLevel } from '@/lib/tal/gamification-shared';
 
 export interface PopupBadgeData {
   title: string;

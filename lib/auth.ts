@@ -3,14 +3,24 @@ import Credentials from 'next-auth/providers/credentials';
 import Google from 'next-auth/providers/google';
 import { randomUUID } from 'node:crypto';
 import { authConfig } from './auth.config';
-import { prisma } from './db';
+import { legacyPrisma as prisma } from './db';
+// CATATAN (perbaikan resolver header): SEMUA pemakaian `prisma` di file
+// ini bersifat LEGACY by definition — authorize fallback, lookup Google
+// legacy, cabang switch-org, refresh token legacy, sesi/audit legacy di
+// events, isAdminDoorUser, dan seedOrgDefaults (peninggalan jalur lama).
+// Karena itu file ini memakai `legacyPrisma` mentah, bukan proxy `prisma`:
+// proxy merutekan ke tenant client bila header `x-tenant-code` ada di
+// request, padahal query-query di sini berjalan SEBELUM/SAAT auth (client
+// tenant belum ter-resolve) dan/atau membaca model yang tidak ada di
+// skema tenant (SystemSetting, password User, Session legacy).
+// Cabang tenant memakai masterPrisma / tenant client langsung.
 import { verifyPassword } from './password';
 import { loginSchema } from './validation';
 import { audit } from './audit';
-import { slugify } from './utils';
 import { getSystemSettings, verifyTurnstile } from './system-settings';
-import { trialEndsAtFromNow } from './trial';
 import { getSubscription } from './subscription';
+import { masterPrisma } from './tenant/master';
+import { registerCompany } from './tenant/registration';
 
 /**
  * Langganan kantor yang statusnya PENDING_PAYMENT / CANCELLED memblokir
@@ -72,6 +82,80 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
         const parsed = loginSchema.safeParse(credentials);
         if (!parsed.success) return null;
         const email = parsed.data.email.toLowerCase().trim();
+        const loginType = (credentials as any)?.loginType === 'admin' ? 'admin' : 'office';
+        // LAPISAN D (database-per-tenant): cek PlatformUser di master DULU.
+        // - Cocok (status ACTIVE + passwordHash terverifikasi) -> sesi tenant:
+        //   id = PlatformUser.id, tenant dari TenantMembership ACTIVE.
+        // - Tidak ada di master, passwordHash null, atau password tidak cocok
+        //   -> jatuh ke lookup User legacy di bawah (perilaku lama).
+        // - Password cocok TAPI status master bukan ACTIVE, atau tidak ada
+        //   membership ACTIVE -> return null (jangan jatuh ke legacy: identitas
+        //   platform sudah terverifikasi, jadi penolakan ini disengaja).
+        // Pesan error tetap generik di semua cabang (LoginForm hanya menampilkan
+        // "Email atau password salah"), jadi tidak bocor apakah email ada di
+        // master atau di legacy.
+        const platformUser = await masterPrisma.platformUser.findUnique({ where: { email } });
+        if (platformUser?.passwordHash) {
+          const pwOk = await verifyPassword(parsed.data.password, platformUser.passwordHash);
+          if (pwOk) {
+            if (platformUser.status !== 'ACTIVE') return null;
+            // Pintu login: tenant (office) selalu boleh; pintu admin hanya
+            // untuk Administrator Pusat (PlatformUser.isSuperAdmin).
+            if (loginType === 'admin' && !platformUser.isSuperAdmin) {
+              throw wrongDoorError('wrong-door-office');
+            }
+            // Multi-membership: pakai membership ACTIVE pertama secara
+            // deterministik (createdAt paling awal). User single-tenant —
+            // satu-satunya kasus yang didukung lapisan ini — tidak terdampak.
+            // Ganti tenant aktif (switch-org) belum didukung untuk tenant
+            // (lihat LAPISAN D di callback jwt + laporan).
+            const tenantMembership = await masterPrisma.tenantMembership.findFirst({
+              where: { userId: platformUser.id, membershipStatus: 'ACTIVE' },
+              include: { tenant: { select: { id: true, tenantCode: true, companyName: true, tenantStatus: true } } },
+              orderBy: { createdAt: 'asc' },
+            });
+            if (!tenantMembership) {
+              // Administrator Pusat tanpa membership tetap boleh masuk pintu
+              // admin (konsisten dengan cabang Google lapisan B yang tidak
+              // mewajibkan membership); selain itu tidak ada tenant untuk
+              // dimasuki -> tolak.
+              if (loginType === 'admin' && platformUser.isSuperAdmin) {
+                return {
+                  id: platformUser.id,
+                  name: platformUser.name,
+                  email: platformUser.email,
+                  image: null,
+                  isSuperAdmin: true,
+                  loginDoor: loginType,
+                  tenantCode: null,
+                  tenantId: null,
+                  tenantStatus: null,
+                };
+              }
+              return null;
+            }
+            // Tenant yang masih PENDING_PROVISIONING / FAILED TIDAK diblokir
+            // di sini — login tetap sukses, lalu alur login (LoginForm +
+            // backstop root layout) mengarahkan ke /provisioning.
+            // Pengecekan langganan legacy tidak berlaku untuk tenant.
+            return {
+              id: platformUser.id,
+              name: platformUser.name,
+              email: platformUser.email,
+              image: null,
+              organizationId: tenantMembership.tenant.id,
+              organizationName: tenantMembership.tenant.companyName,
+              role: tenantMembership.roleReference,
+              isSuperAdmin: platformUser.isSuperAdmin,
+              loginDoor: loginType,
+              tenantCode: tenantMembership.tenant.tenantCode,
+              tenantId: tenantMembership.tenant.id,
+              tenantStatus: tenantMembership.tenant.tenantStatus,
+            };
+          }
+          // Password tidak cocok di master -> jatuh ke legacy di bawah.
+        }
+        // --- Jalur legacy (woork_saas), perilaku LAMA, tidak diubah. ---
         const user = await prisma.user.findUnique({ where: { email } });
         if (!user || !user.password || user.status !== 'ACTIVE') return null;
         const ok = await verifyPassword(parsed.data.password, user.password);
@@ -81,7 +165,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
         // juga anggota aktif kantor boleh masuk /login sebagai karyawan murni
         // (sesi office-door tidak membawa hak admin). Penolakan peran tetap
         // hanya setelah password benar.
-        const loginType = (credentials as any)?.loginType === 'admin' ? 'admin' : 'office';
         const isAdminDoor = await isAdminDoorUser(user.id, user.isSuperAdmin);
         if (loginType === 'admin' && !isAdminDoor) throw wrongDoorError('wrong-door-office');
         const membership = await prisma.membership.findFirst({
@@ -131,41 +214,65 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
     providers,
     callbacks: {
       async signIn({ user, account }) {
-        // Google OAuth: auto-provision user + workspace pribadi
+        // Google OAuth — LAPISAN B (database-per-tenant). Tiga cabang:
+        // (a) email sudah ada di PlatformUser (master) -> lanjut normal,
+        //     JANGAN buat tenant baru; tenantCode/tenantId ditempel di user
+        //     untuk lapisan D (auth bridge) yang akan mempersist-nya ke token.
+        // (b) email belum ada di master MAUPUN di legacy User (woork_saas)
+        //     -> registerCompany (tanpa password; provisioning async jalan),
+        //     lalu lanjutkan sign-in dengan user tersebut.
+        // (c) email hanya ada di legacy User -> jalur legacy seperti dulu
+        //     (baca saja; JANGAN buat tenant baru, JANGAN tulis ke woork_saas).
+        // Callback jwt/session TIDAK diubah di sini — itu tugas lapisan D.
         if (account?.provider === 'google' && user.email) {
           const email = user.email.toLowerCase();
-          let dbUser = await prisma.user.findUnique({ where: { email } });
-          if (!dbUser) {
-            const base = slugify(user.name || email.split('@')[0]);
-            const slug = `${base}-${randomUUID().slice(0, 6)}`;
-            const org = await prisma.organization.create({
-              data: {
-                name: `${user.name || 'Workspace'}'s Workspace`,
-                slug,
-                subscription: { create: { plan: 'FREE', trialEndsAt: trialEndsAtFromNow() } },
-              },
+          const platformUser = await masterPrisma.platformUser.findUnique({ where: { email } });
+          if (platformUser) {
+            // (a) Akun platform sudah ada: pakai membership OWNER-nya.
+            const membership = await masterPrisma.tenantMembership.findFirst({
+              where: { userId: platformUser.id, membershipStatus: 'ACTIVE' },
+              include: { tenant: { select: { id: true, tenantCode: true, companyName: true } } },
+              orderBy: { createdAt: 'asc' },
             });
-            await seedOrgDefaults(org.id);
-            dbUser = await prisma.user.create({
-              data: { name: user.name || email.split('@')[0], email, avatar: user.image },
-            });
-            const role = await prisma.role.findFirst({
-              where: { organizationId: org.id, name: 'OWNER' },
-            });
-            await prisma.membership.create({
-              data: { userId: dbUser.id, organizationId: org.id, roleId: role!.id },
-            });
-            (user as any).organizationId = org.id;
-            (user as any).organizationName = org.name;
+            (user as any).tenantId = membership?.tenant.id ?? null;
+            (user as any).tenantCode = membership?.tenant.tenantCode ?? null;
+            (user as any).organizationName = membership?.tenant.companyName ?? platformUser.name;
             (user as any).role = 'OWNER';
             (user as any).isSuperAdmin = false;
             (user as any).loginDoor = 'office';
-            // Samakan id sesi dengan id user di DB (cabang user lama sudah melakukannya).
-            // Tanpa ini, token JWT memakai id OAuth (Google sub) yang tidak ada di tabel
-            // User -> Session FK gagal + layout dashboard redirect loop /login <-> /dashboard.
-            user.id = dbUser.id;
-            user.name = dbUser.name;
-          } else {
+            user.id = platformUser.id;
+            user.name = platformUser.name;
+            return true;
+          }
+
+          let dbUser = await prisma.user.findUnique({ where: { email } });
+          if (!dbUser) {
+            // (b) Pengguna baru sama sekali: buat tenant via provisioning
+            // engine. Nama perusahaan dari profil Google; bila kosong,
+            // pakai bagian sebelum '@' dari email.
+            const adminName = user.name || email.split('@')[0];
+            const companyName = user.name || email.split('@')[0];
+            const created = await registerCompany({
+              companyName,
+              adminName,
+              adminEmail: email,
+              adminPassword: undefined,
+            });
+            (user as any).tenantId = created.tenantId;
+            (user as any).tenantCode = created.tenantCode;
+            (user as any).organizationName = companyName;
+            (user as any).role = 'OWNER';
+            (user as any).isSuperAdmin = false;
+            (user as any).loginDoor = 'office';
+            // Samakan id sesi dengan id PlatformUser di master DB.
+            // Tanpa ini, token JWT memakai id OAuth (Google sub) yang tidak
+            // ada di tabel mana pun -> sesi tidak konsisten.
+            user.id = created.platformUserId;
+            user.name = adminName;
+            return true;
+          }
+          // (c) Hanya ada di legacy — jalur lama, tidak berubah.
+          {
             const membership = await prisma.membership.findFirst({
               where: { userId: dbUser.id, status: 'ACTIVE' },
               include: { organization: true, role: true },
@@ -190,11 +297,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
       async jwt({ token, user, trigger, session }) {
         // Ganti kantor aktif: client memanggil update({ organizationId }) —
         // server memvalidasi membership sebelum mengganti token.
+        // LAPISAN D: cabang ini hanya untuk sesi LEGACY. Sesi tenant tidak
+        // bisa ganti tenant lewat sini (switch-org tenant belum didukung —
+        // lihat laporan Lapisan D butir 6); token tenant dibiarkan apa adanya.
         // Bypass kantor/langganan hanya untuk sesi pintu admin; sesi karyawan
         // tunduk pada aturan kantor (lihat isSuperAdmin efektif di bawah).
         const doorAdmin = (token as any).loginDoor !== 'office';
         const effSuperAdmin = (token as any).isSuperAdmin === true && doorAdmin;
-        if (trigger === 'update' && (session as any)?.organizationId) {
+        if (trigger === 'update' && (session as any)?.organizationId && !(token as any).tenantCode) {
           const targetOrg = String((session as any).organizationId);
           const m = await prisma.membership.findFirst({
             where: { userId: token.sub as string, organizationId: targetOrg, status: 'ACTIVE' },
@@ -213,24 +323,100 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
           return token;
         }
         if (user) {
-          token.organizationId = (user as any).organizationId;
+          // Pengguna Google tenant (lapisan B) tidak membawa organizationId —
+          // pakai tenantId sebagai organizationId agar kode yang membaca
+          // organizationId tetap jalan. Pengguna legacy selalu membawa
+          // organizationId, jadi fallback ini tidak mengubah jalur legacy.
+          token.organizationId = (user as any).organizationId ?? (user as any).tenantId;
           token.organizationName = (user as any).organizationName;
           token.role = (user as any).role;
           token.isSuperAdmin = (user as any).isSuperAdmin === true;
           // Sesi ikut pintu: catat pintu login di token.
           token.loginDoor = (user as any).loginDoor === 'admin' ? 'admin' : 'office';
+          // LAPISAN D: persist field tenant ke token. Hanya ditulis bila ada
+          // (user legacy / Google legacy tidak membawa tenantCode, jadi token
+          // mereka tetap tanpa field tenant — tidak ditulis undefined).
+          // tenantStatus ikut ditulis bila dibawa authorize (kredensial);
+          // Google lapisan B belum membawanya — status segar dibaca ulang
+          // di cabang refresh tenant di bawah + backstop root layout.
+          if ((user as any).tenantCode) {
+            (token as any).tenantCode = (user as any).tenantCode;
+            (token as any).tenantId = (user as any).tenantId;
+            if ((user as any).tenantStatus) {
+              (token as any).tenantStatus = (user as any).tenantStatus;
+            }
+          }
         }
-        // Refresh berkala agar pencabutan akses / penonaktifan cepat berlaku
+        // Refresh berkala agar pencabutan akses / penonaktifan cepat berlaku.
+        // LAPISAN D: token tenant (punya tenantCode) di-refresh dari MASTER,
+        // BUKAN dari prisma.user legacy — token.sub di sini adalah id
+        // PlatformUser yang tidak ada di woork_saas (bug yang ditandai
+        // lapisan B bila memakai jalur legacy). Token tanpa tenantCode memakai
+        // jalur refresh legacy seperti dulu, tidak diubah.
         if (token.sub && (token as any)._permAt) {
           const age = Date.now() - (token as any)._permAt;
           if (age > 5 * 60_000) {
-            const u = await prisma.user.findUnique({
-              where: { id: token.sub as string },
-              select: { status: true, isSuperAdmin: true },
-            });
-            if (!u || u.status !== 'ACTIVE') return { ...token, _expired: true } as any;
-            (token as any).isSuperAdmin = u.isSuperAdmin;
-            (token as any)._permAt = Date.now();
+            if ((token as any).tenantCode) {
+              const pu = await masterPrisma.platformUser.findUnique({
+                where: { id: token.sub as string },
+                select: { status: true, isSuperAdmin: true },
+              });
+              if (!pu || pu.status !== 'ACTIVE') return { ...token, _expired: true } as any;
+              (token as any).isSuperAdmin = pu.isSuperAdmin;
+              // Membership ACTIVE pertama (createdAt paling awal) — sama
+              // seperti authorize. Bila membership hilang: user biasa
+              // kehilangan akses -> sesi di-expire; Administrator Pusat
+              // (pintu admin) dipertahankan apa adanya karena ia tidak
+              // butuh membership untuk bekerja sebagai admin platform.
+              const m = await masterPrisma.tenantMembership.findFirst({
+                where: { userId: token.sub as string, membershipStatus: 'ACTIVE' },
+                include: {
+                  tenant: { select: { id: true, tenantCode: true, companyName: true, tenantStatus: true } },
+                },
+                orderBy: { createdAt: 'asc' },
+              });
+              if (!m) {
+                if (!pu.isSuperAdmin) return { ...token, _expired: true } as any;
+              } else {
+                (token as any).tenantCode = m.tenant.tenantCode;
+                (token as any).tenantId = m.tenant.id;
+                (token as any).tenantStatus = m.tenant.tenantStatus;
+                token.organizationId = m.tenant.id;
+                token.organizationName = m.tenant.companyName;
+                token.role = m.roleReference;
+              }
+              (token as any)._permAt = Date.now();
+            } else {
+              const u = await prisma.user.findUnique({
+                where: { id: token.sub as string },
+                select: { status: true, isSuperAdmin: true },
+              });
+              if (!u || u.status !== 'ACTIVE') return { ...token, _expired: true } as any;
+              (token as any).isSuperAdmin = u.isSuperAdmin;
+              // Phase 6 — AUTO-CONVERT: bila user legacy ini sudah punya
+              // membership ACTIVE di master (org-nya sudah bermigrasi),
+              // ubah sesi legacy menjadi sesi tenant. No-op bila tidak
+              // ada membership master (belum migrasi) — perilaku tidak
+              // berubah. Rollback = hapus membership master: refresh
+              // berikutnya tidak menemukan membership (cabang tenant di
+              // atas meng-expire sesi bila bukan super admin).
+              const tm = await masterPrisma.tenantMembership.findFirst({
+                where: { userId: token.sub as string, membershipStatus: 'ACTIVE' },
+                include: {
+                  tenant: { select: { id: true, tenantCode: true, companyName: true, tenantStatus: true } },
+                },
+                orderBy: { createdAt: 'asc' },
+              });
+              if (tm && tm.tenant.tenantStatus === 'ACTIVE') {
+                (token as any).tenantCode = tm.tenant.tenantCode;
+                (token as any).tenantId = tm.tenant.id;
+                (token as any).tenantStatus = tm.tenant.tenantStatus;
+                token.organizationId = tm.tenant.id;
+                token.organizationName = tm.tenant.companyName;
+                token.role = tm.roleReference;
+              }
+              (token as any)._permAt = Date.now();
+            }
           }
         } else if (token.sub) {
           (token as any)._permAt = Date.now();
@@ -238,13 +424,19 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
         // Sesi lama (dibuat sebelum pintu login dicatat): tentukan pintunya
         // sekali dari peran user, supaya sesi admin yang sudah berjalan tidak
         // kehilangan aksesnya — dan sesi karyawan tetap karyawan.
+        // LAPISAN D: token tenant selalu office-door (authorize / Google
+        // lapisan B sudah mencatatnya); jangan query legacy untuknya.
         if (!(token as any).loginDoor && token.sub) {
-          (token as any).loginDoor = (await isAdminDoorUser(
-            token.sub as string,
-            (token as any).isSuperAdmin === true
-          ))
-            ? 'admin'
-            : 'office';
+          if ((token as any).tenantCode) {
+            (token as any).loginDoor = 'office';
+          } else {
+            (token as any).loginDoor = (await isAdminDoorUser(
+              token.sub as string,
+              (token as any).isSuperAdmin === true
+            ))
+              ? 'admin'
+              : 'office';
+          }
         }
         return token;
       },
@@ -254,6 +446,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
           (session.user as any).organizationId = token.organizationId;
           (session.user as any).organizationName = token.organizationName;
           (session.user as any).role = token.role;
+          // LAPISAN D: expose field tenant ke session (null untuk legacy).
+          (session.user as any).tenantCode = (token as any).tenantCode ?? null;
+          (session.user as any).tenantId = (token as any).tenantId ?? null;
+          (session.user as any).tenantStatus = (token as any).tenantStatus ?? null;
           // Sesi ikut pintu: isSuperAdmin di sesi adalah nilai EFEKTIF —
           // sesi office-door tidak membawa status admin, walau user-nya
           // Administrator Pusat. Token tetap menyimpan nilai mentahnya.
@@ -266,6 +462,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth(async () => {
     },
     events: {
       async signIn({ user }) {
+        // LAPISAN D: sesi tenant tidak punya Organization legacy — jangan
+        // tulis prisma.session / audit legacy di sini (organizationId-nya
+        // adalah tenantId master, bukan id Organization woork_saas).
+        // Audit platform tenant menyusul di lapisan berikutnya.
+        if ((user as any).tenantCode) return;
         try {
           const orgId = (user as any).organizationId as string | undefined;
           await prisma.session.create({

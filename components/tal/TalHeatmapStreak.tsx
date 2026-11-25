@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Flame } from 'lucide-react';
-import { HeatmapDayData } from '@/lib/tal/gamification';
+import { HeatmapDayData } from '@/lib/tal/gamification-shared';
 
 interface TalHeatmapStreakProps {
   heatmapData: HeatmapDayData[];

@@ -62,8 +62,18 @@ export async function findUserByPhone(
 ): Promise<{ id: string; name: string; phone: string | null } | null> {
   const target = normalizePhone(phone);
   if (!target) return null;
+  // User mirror tenant scalar-only (tanpa relasi `memberships`) — filter
+  // relasi di atas throw di client tenant. Pola baku Phase 3: ambil
+  // membership aktif dulu, lalu user-nya terpisah. Bekerja di legacy
+  // maupun tenant.
+  const memberships = await prisma.membership.findMany({
+    where: { organizationId: orgId, status: 'ACTIVE' },
+    select: { userId: true },
+  });
+  const userIds = [...new Set(memberships.map((m) => m.userId))];
+  if (userIds.length === 0) return null;
   const users = await prisma.user.findMany({
-    where: { memberships: { some: { organizationId: orgId, status: 'ACTIVE' } } },
+    where: { id: { in: userIds } },
     select: { id: true, name: true, phone: true },
   });
   return users.find((u) => normalizePhone(u.phone) === target) ?? null;

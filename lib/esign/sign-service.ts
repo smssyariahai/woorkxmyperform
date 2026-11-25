@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/db';
+import { prisma, legacyPrisma } from '@/lib/db';
 import { esignAudit } from '@/lib/esign/audit';
 import { verifyPin } from '@/lib/esign/pin';
 import { isSignerTurn, statusAfterSign } from '@/lib/esign/workflow';
@@ -156,7 +156,9 @@ export async function executeSign(input: ExecuteSignInput): Promise<ExecuteSignR
       if (!isPng(buf)) throw new SignError('File bukan gambar PNG yang valid.', 422);
       method = 'CANVAS';
     } else {
-      const profile = await prisma.esignProfile.findUnique({
+      // EsignProfile adalah model platform global (hanya ada di
+      // woork_saas) — baca lewat legacyPrisma, bukan proxy tenant.
+      const profile = await legacyPrisma.esignProfile.findUnique({
         where: { userId },
         select: { signaturePath: true },
       });

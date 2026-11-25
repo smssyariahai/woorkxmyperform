@@ -9,7 +9,7 @@
 import React, { useState, useMemo } from 'react';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react';
 import type { TalHolidayItem } from '@/lib/tal/types';
-import type { HeatmapDayData } from '@/lib/tal/gamification';
+import type { HeatmapDayData } from '@/lib/tal/gamification-shared';
 import {
   INDONESIAN_MONTHS,
   INDONESIAN_DAYS_SHORT,

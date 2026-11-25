@@ -1,4 +1,6 @@
 import { prisma } from '@/lib/db';
+import { masterPrisma } from '@/lib/tenant/master';
+import { runWithTenant, getTenantClientForCode } from '@/lib/tenant/resolver';
 import { getTool, allowedTools, type ToolDef } from './tools';
 import { planWithAI, composeReportWithAI, type AgentAiProfile, type AgentAiToolInfo } from './ai';
 import { formatBulanTahun } from './month';
@@ -152,7 +154,52 @@ export async function enqueueTask(organizationId: string, taskId: string) {
   setImmediate(() => void processQueue(organizationId).catch((e) => console.error('[agents] queue error:', e)));
 }
 
+/**
+ * Kode tenant untuk satu organizationId (id mirror org == tenant.id di
+ * master). null untuk org legacy (tetap jalan seperti semula) atau bila
+ * tenant tidak ACTIVE / master tidak terjangkau (fallback aman).
+ */
+async function resolveTenantCode(organizationId: string): Promise<string | null> {
+  try {
+    const t = await masterPrisma.tenant.findUnique({
+      where: { id: organizationId },
+      select: { tenantCode: true, tenantStatus: true },
+    });
+    return t && t.tenantStatus === 'ACTIVE' ? t.tenantCode : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Jalankan `fn` dalam konteks tenant org ini bila org adalah tenant
+ * ACTIVE; org legacy jalan langsung seperti semula.
+ */
+async function withOrgContext<T>(organizationId: string, fn: () => T): Promise<T> {
+  const code = await resolveTenantCode(organizationId);
+  if (code) {
+    // Proxy `prisma` fail-closed: client tenant HARUS sudah di-resolve
+    // (cache) sebelum runWithTenant, kalau tidak setiap query melempar
+    // "tenant client belum di-resolve". Di jalur request ini sudah terjadi
+    // lewat requireAuth; di jalur server-start (sweep) belum — resolve di sini.
+    await getTenantClientForCode(code);
+    return runWithTenant(code, fn);
+  }
+  return fn();
+}
+
 async function processQueue(organizationId: string) {
+  // setImmediate berjalan di luar konteks request/ALS mana pun, jadi
+  // proxy `prisma` di sini jatuh ke legacy — tugas tenant tidak pernah
+  // ditemukan dan macet di QUEUED (P0-11). Bungkus eksekusi dalam
+  // konteks tenant bila org ini tenant ACTIVE; org legacy tidak berubah.
+  // Pembungkus ada di sini (bukan di enqueueTask) supaya SEMUA pemicu —
+  // termasuk setImmediate lanjutan di finally processQueueInner —
+  // ikut terbungkus.
+  return withOrgContext(organizationId, () => processQueueInner(organizationId));
+}
+
+async function processQueueInner(organizationId: string) {
   // ambil 1 tugas QUEUED prioritas tertinggi yang agentnya tidak sibuk
   const task = await prisma.agentTask.findFirst({
     where: { organizationId, status: 'QUEUED' },
@@ -400,9 +447,12 @@ async function executeTask(organizationId: string, taskId: string) {
     await publishAgentEvent(organizationId, 'notification.created', {
       type: 'TASK_COMPLETED', title: 'Tugas selesai', message: `${agent.name}: ${task.title}`,
     });
-    // kembali siaga setelah jeda singkat
+    // kembali siaga setelah jeda singkat — setTimeout juga berjalan di
+    // luar konteks ALS, jadi bungkus seperti processQueue (P0-11):
+    // tanpa ini agent tenant tetap COMPLETED (tampil "Bekerja") karena
+    // update IDLE-nya jatuh ke legacy dan gagal sunyi.
     setTimeout(() => {
-      setAgentStatus(organizationId, agent.id, 'IDLE', null).catch(() => {});
+      void withOrgContext(organizationId, () => setAgentStatus(organizationId, agent.id, 'IDLE', null)).catch(() => {});
     }, 4000);
   } catch (e: any) {
     // P0-2 — abort BUKAN kegagalan: jangan retry, jangan FAILED, jangan
@@ -537,6 +587,31 @@ export async function reviewApproval(organizationId: string, approvalId: string,
  * (c) tutup AgentActivity EXECUTING_TASK yang masih terbuka milik agent itu.
  */
 export async function sweepOrphanedTasks(): Promise<number> {
+  // Pass legacy dulu (tanpa konteks → proxy jatuh ke woork_saas), lalu tiap
+  // tenant ACTIVE. Sebelum perbaikan ini (Phase 4) hanya legacy yang
+  // disapu — tugas RUNNING milik tenant yang yatim akibat restart VM tidak
+  // pernah ditandai FAILED dan agent-nya tampil "Bekerja" selamanya.
+  let total = await sweepOrphanedTasksForOrg();
+  let tenants: Array<{ id: string; tenantCode: string }> = [];
+  try {
+    tenants = await masterPrisma.tenant.findMany({
+      where: { tenantStatus: 'ACTIVE' },
+      select: { id: true, tenantCode: true },
+    });
+  } catch {
+    console.log('[agents] orphan sweep: daftar tenant tidak bisa dibaca — hanya legacy yang disapu');
+  }
+  for (const t of tenants) {
+    try {
+      total += await withOrgContext(t.id, () => sweepOrphanedTasksForOrg());
+    } catch (e: any) {
+      console.log(`[agents] orphan sweep: tenant ${t.tenantCode} gagal — ${String(e?.message ?? e).slice(0, 120)}`);
+    }
+  }
+  return total;
+}
+
+async function sweepOrphanedTasksForOrg(): Promise<number> {
   const now = new Date();
   const orphaned = await prisma.agentTask.findMany({
     where: { status: 'RUNNING' },

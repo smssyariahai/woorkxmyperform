@@ -129,7 +129,13 @@ export function validateAgentInput(
   const rawInstr = pick('systemInstructions');
   const systemInstructions =
     typeof rawInstr === 'string' ? rawInstr.trim() : existing?.systemInstructions ?? '';
-  if (systemInstructions.length > 8000) {
+  // Batas 8000 hanya untuk instruksi BARU dari form manual. Agent hasil
+  // install katalog menyimpan systemInstructions template APA ADANYA
+  // (bisa >8000, mis. 11.044 karakter) — memvalidasi ulang instruksi lama
+  // yang tidak diubah akan memblokir SEMUA edit agent itu (warna, tools,
+  // nama). Ditemukan 2026-11-23 saat install 9 agent divisi: PATCH warna
+  // gagal 422 "Instruksi sistem maksimal 8000 karakter."
+  if (typeof rawInstr === 'string' && systemInstructions.length > 8000) {
     return { ok: false, message: 'Instruksi sistem maksimal 8000 karakter.' };
   }
 
