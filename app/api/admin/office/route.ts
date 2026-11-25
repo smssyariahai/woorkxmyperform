@@ -12,19 +12,23 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: Request) {
   try {
     const ctx = await requirePermission('SETTINGS_MANAGE', req);
-    const org = await prisma.organization.findUnique({
-      where: { id: ctx.organizationId },
-      include: {
-        _count: {
-          select: {
-            memberships: true,
-            departments: true,
-            roles: true,
-            customers: true,
-          },
-        },
-      },
-    });
+    // Organization mirror di tenant client TIDAK punya relasi/_count —
+    // hitungan diambil terpisah (hasil sama: semua membership/department/
+    // role/customer milik org, tanpa filter status).
+    const [org, counts] = await Promise.all([
+      prisma.organization.findUnique({ where: { id: ctx.organizationId } }),
+      Promise.all([
+        prisma.membership.count({ where: { organizationId: ctx.organizationId } }),
+        prisma.department.count({ where: { organizationId: ctx.organizationId } }),
+        prisma.role.count({ where: { organizationId: ctx.organizationId } }),
+        prisma.customer.count({ where: { organizationId: ctx.organizationId } }),
+      ]).then(([memberships, departments, roles, customers]) => ({
+        memberships,
+        departments,
+        roles,
+        customers,
+      })),
+    ]);
     if (!org) return apiErr('Kantor tidak ditemukan.', 404);
     return apiOk({
       id: org.id,
@@ -49,7 +53,7 @@ export async function GET(req: Request) {
       isActive: org.isActive,
       modules: JSON.parse(org.modules || '[]'),
       availableModules: AVAILABLE_MODULES,
-      counts: org._count,
+      counts,
       createdAt: org.createdAt,
     });
   } catch (e: any) {

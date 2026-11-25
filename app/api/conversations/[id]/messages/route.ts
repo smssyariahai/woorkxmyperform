@@ -29,8 +29,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         senderId: asWoo ? null : ctx.userId,
         body: parsed.data.body.trim(),
       },
-      include: { sender: { select: { id: true, name: true } } },
     });
+    // ConversationMessage TIDAK punya relasi `sender` di tenant client
+    // (Lapisan F) — pengirimnya user yang sedang login (atau Woo).
+    const sender = asWoo ? null : { id: ctx.userId, name: ctx.name };
 
     // Balasan (agen/Woo) berarti percakapan sedang ditangani → Proses.
     // Bila sebelumnya Selesai lalu dibalas manual, ikut terbuka kembali sebagai Proses.
@@ -115,13 +117,13 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         id: message.id,
         conversationId: message.conversationId,
         senderType: message.senderType,
-        sender: message.sender ? { name: message.sender.name } : null,
+        sender: sender ? { name: sender.name } : null,
         body: message.body,
         createdAt: message.createdAt instanceof Date ? message.createdAt.toISOString() : String(message.createdAt),
       });
     } catch {}
 
-    return apiOk({ ...message, waSent, waError }, 201);
+    return apiOk({ ...message, sender, waSent, waError }, 201);
   } catch (e: any) {
     if (e instanceof Response) return e;
     return apiErr('Gagal mengirim pesan.', 500);

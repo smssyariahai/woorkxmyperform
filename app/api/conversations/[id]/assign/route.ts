@@ -24,8 +24,12 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         to === 'team'
           ? { assignedTo: 'TEAM', assigneeId: ctx.userId, status: 'IN_PROGRESS' }
           : { assignedTo: 'WOO', assigneeId: null },
-      include: { assignee: { select: { id: true, name: true } } },
     });
+    // Conversation TIDAK punya relasi `assignee` di tenant client
+    // (Lapisan F) — ambil nama assignee dari mirror User.
+    const assignee = updated.assigneeId
+      ? await prisma.user.findUnique({ where: { id: updated.assigneeId }, select: { id: true, name: true } })
+      : null;
 
     const sysMsg = await prisma.conversationMessage.create({
       data: {
@@ -64,7 +68,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       ipAddress: getClientIp(req),
     });
 
-    return apiOk(updated);
+    return apiOk({ ...updated, assignee: assignee ?? null });
   } catch (e: any) {
     if (e instanceof Response) return e;
     return apiErr('Gagal mengubah assignment.', 500);

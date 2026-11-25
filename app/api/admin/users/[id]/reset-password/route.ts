@@ -10,11 +10,15 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   try {
     const ctx = await requirePermission('USERS_UPDATE', req);
-    const membership = await prisma.membership.findFirst({
+    // Membership TIDAK punya relasi `user` di tenant client — user diambil
+    // terpisah lalu digabung (bentuk hasil sama).
+    const membershipRow = await prisma.membership.findFirst({
       where: { id: params.id, organizationId: ctx.organizationId },
-      include: { user: true },
     });
-    if (!membership) return apiErr('Pengguna tidak ditemukan.', 404);
+    if (!membershipRow) return apiErr('Pengguna tidak ditemukan.', 404);
+    const memberUser = await prisma.user.findUnique({ where: { id: membershipRow.userId } });
+    if (!memberUser) return apiErr('Pengguna tidak ditemukan.', 404);
+    const membership = { ...membershipRow, user: memberUser };
     if (membership.user.isSuperAdmin && !ctx.isSuperAdmin) {
       return apiErr('Tidak dapat me-reset password Administrator Pusat.', 403);
     }

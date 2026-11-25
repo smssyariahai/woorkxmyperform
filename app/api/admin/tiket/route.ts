@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db';
 import { requireSuperAdmin } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import {
+  hydrateTickets,
   mapTicket,
   ticketInclude,
   TICKET_STATUSES,
@@ -39,12 +40,14 @@ export async function GET(req: Request) {
       ];
     }
     const [rows, organizations] = await Promise.all([
-      prisma.ticket.findMany({
-        where: where as never,
-        orderBy: { createdAt: 'desc' },
-        take: limit,
-        include: ticketInclude,
-      }),
+      hydrateTickets(
+        await prisma.ticket.findMany({
+          where: where as never,
+          orderBy: { createdAt: 'desc' },
+          take: limit,
+          include: ticketInclude,
+        })
+      ),
       prisma.organization.findMany({
         orderBy: { name: 'asc' },
         select: { id: true, name: true },

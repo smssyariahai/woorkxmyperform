@@ -10,10 +10,9 @@ export const dynamic = 'force-dynamic';
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   try {
     const ctx = await requirePermission('CRM_VIEW');
-    const customer = await prisma.customer.findFirst({
+    const row = await prisma.customer.findFirst({
       where: { id: params.id, organizationId: ctx.organizationId },
       include: {
-        owner: { select: { id: true, name: true, email: true } },
         tags: { include: { tag: true } },
         conversations: {
           include: {
@@ -22,17 +21,48 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
           },
           orderBy: { lastMessageAt: 'desc' },
         },
-        notes: { include: { author: { select: { id: true, name: true } } }, orderBy: { createdAt: 'desc' } },
-        lead: { include: { stage: true, owner: { select: { id: true, name: true } } } },
+        notes: { orderBy: { createdAt: 'desc' } },
+        lead: { include: { stage: true } },
         deals: { include: { stage: true }, orderBy: { createdAt: 'desc' } },
         followUps: {
-          include: { assignedTo: { select: { id: true, name: true } } },
           orderBy: { scheduledAt: 'asc' },
         },
         activities: { orderBy: { createdAt: 'desc' }, take: 30 },
       },
     });
-    if (!customer) return apiErr('Pelanggan tidak ditemukan.', 404);
+    if (!row) return apiErr('Pelanggan tidak ditemukan.', 404);
+    // Customer TIDAK punya relasi `owner`, Note TIDAK punya `author`, Lead
+    // TIDAK punya `owner`, FollowUp TIDAK punya `assignedTo` di tenant
+    // client — ambil dari mirror User (Lapisan F).
+    const userIds = [
+      ...new Set(
+        [
+          row.ownerId,
+          ...row.notes.map((n) => n.authorId),
+          row.lead?.ownerId,
+          ...row.followUps.map((f) => f.assignedToId),
+        ].filter((id): id is string => !!id)
+      ),
+    ];
+    const users = userIds.length
+      ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, email: true } })
+      : [];
+    const byId = new Map(users.map((u) => [u.id, u]));
+    const pickName = (id: string | null | undefined) => {
+      const u = id ? byId.get(id) : undefined;
+      return u ? { id: u.id, name: u.name } : null;
+    };
+    const customer = {
+      ...row,
+      owner: row.ownerId
+        ? byId.get(row.ownerId)
+          ? { id: byId.get(row.ownerId)!.id, name: byId.get(row.ownerId)!.name, email: byId.get(row.ownerId)!.email }
+          : null
+        : null,
+      notes: row.notes.map((n) => ({ ...n, author: pickName(n.authorId) })),
+      lead: row.lead ? { ...row.lead, owner: pickName(row.lead.ownerId) } : null,
+      followUps: row.followUps.map((f) => ({ ...f, assignedTo: pickName(f.assignedToId) })),
+    };
     return apiOk({ ...customer, tags: customer.tags.map((t) => t.tag) });
   } catch (e: any) {
     if (e instanceof Response) return e;

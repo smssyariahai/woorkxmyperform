@@ -3,8 +3,9 @@ import { requirePermission, getUserPermissions, assertCanGrant } from '@/lib/aut
 import { apiOk, apiErr } from '@/lib/utils';
 import { audit, getClientIp } from '@/lib/audit';
 import { hashPassword } from '@/lib/password';
-import { validateUserDetailInput, buildUserDetailOps } from '@/lib/user-detail';
+import { validateUserDetailInput, buildUserDetailOps, runUserDetailOps } from '@/lib/user-detail';
 import { checkUserQuota } from '@/lib/subscription';
+import { SENSITIVE_MODULES_DEFAULT_NONE, type ModularKey } from '@/lib/modular';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,21 +25,27 @@ export async function GET(req: Request) {
     if (roleId) where.roleId = roleId;
     if (departmentId) where.departmentId = departmentId;
     if (status) where.status = status;
+    // Cari user tidak bisa memakai filter relasi `user` pada Membership di
+    // tenant client — selesaikan dulu id user yang cocok, lalu filter dengan
+    // `userId in [...]` (Lapisan F).
     if (q) {
-      where.user = {
-        OR: [
-          { name: { contains: q, mode: 'insensitive' } },
-          { email: { contains: q, mode: 'insensitive' } },
-        ],
-      };
+      const matched = await prisma.user.findMany({
+        where: {
+          OR: [
+            { name: { contains: q, mode: 'insensitive' } },
+            { email: { contains: q, mode: 'insensitive' } },
+          ],
+        },
+        select: { id: true },
+      });
+      where.userId = { in: matched.map((u) => u.id) };
     }
 
-    const [total, items] = await Promise.all([
+    const [total, rows] = await Promise.all([
       prisma.membership.count({ where }),
       prisma.membership.findMany({
         where,
         include: {
-          user: { select: { id: true, name: true, email: true, phone: true, avatar: true, status: true, isSuperAdmin: true, createdAt: true } },
           role: { select: { id: true, name: true } },
           department: { select: { id: true, name: true } },
         },
@@ -47,6 +54,17 @@ export async function GET(req: Request) {
         take: perPage,
       }),
     ]);
+    // Membership TIDAK punya relasi `user` di tenant client — gabung dari
+    // mirror User (bentuk item sama seperti include lama).
+    const userIds = [...new Set(rows.map((r) => r.userId))];
+    const users = userIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, name: true, email: true, phone: true, avatar: true, status: true, isSuperAdmin: true, createdAt: true },
+        })
+      : [];
+    const byId = new Map(users.map((u) => [u.id, u]));
+    const items = rows.map((r) => ({ ...r, user: byId.get(r.userId) ?? null }));
     return apiOk({ items, page, perPage, total, totalPages: Math.ceil(total / perPage) });
   } catch (e: any) {
     if (e instanceof Response) return e;
@@ -140,17 +158,12 @@ export async function POST(req: Request) {
         jobTitle: body?.jobTitle ? String(body.jobTitle).trim() : null,
         status: 'ACTIVE',
       },
-      include: {
-        user: { select: { id: true, name: true, email: true } },
-        role: { select: { name: true } },
-      },
     });
 
     // Data lengkap (profil, keluarga, ketenagakerjaan, pendidikan,
-    // pengalaman, nilai custom, akses modul).
-    await prisma.$transaction(
-      buildUserDetailOps(detail, { userId: user.id, membershipId: membership.id })
-    );
+    // pengalaman, nilai custom, akses modul) — dua transaksi terpisah
+    // (tenant + profil global, lihat runUserDetailOps).
+    await runUserDetailOps(buildUserDetailOps(detail, { userId: user.id, membershipId: membership.id }));
 
     await audit({
       organizationId: ctx.organizationId,
@@ -160,7 +173,35 @@ export async function POST(req: Request) {
       description: `Menambah pengguna ${name} (${email}) sebagai ${role.name}`,
       ipAddress: getClientIp(req),
     });
-    return apiOk(membership, 201);
+    // Fase 7 G3: hak modul awal yang eksplisit (READ/NONE, atau WRITE
+    // modul sensitif) dicatat terpisah — CREATE_USER saja tidak menyebutnya.
+    const initialModuleRows = detail.moduleAccess.filter(
+      (m) =>
+        m.access !== 'WRITE' ||
+        SENSITIVE_MODULES_DEFAULT_NONE.has(m.moduleKey as ModularKey)
+    );
+    if (initialModuleRows.length > 0) {
+      await audit({
+        organizationId: ctx.organizationId,
+        userId: ctx.userId,
+        action: 'UPDATE_MODULE_ACCESS',
+        module: 'USERS',
+        description: `Hak modul awal ${name} (${email}) — ${initialModuleRows
+          .map((m) => `${m.moduleKey}: ${m.access}`)
+          .join('; ')}`,
+        ipAddress: getClientIp(req),
+      });
+    }
+    // Membership TIDAK punya relasi `user`/`role` di tenant client — bentuk
+    // respons sama seperti include lama (Lapisan F).
+    return apiOk(
+      {
+        ...membership,
+        user: { id: user.id, name: user.name, email: user.email },
+        role: { name: role.name },
+      },
+      201
+    );
   } catch (e: any) {
     if (e instanceof Response) return e;
     return apiErr('Gagal menambah pengguna.', 500);

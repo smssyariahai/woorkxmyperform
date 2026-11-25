@@ -8,10 +8,9 @@ export const dynamic = 'force-dynamic';
 /** GET /api/campaigns/:id — detail campaign + daftar penerima */
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const ctx = await requirePermission('BROADCAST_CREATE');
-  const c = await prisma.campaign.findFirst({
+  const row = await prisma.campaign.findFirst({
     where: { id: params.id, organizationId: ctx.organizationId },
     include: {
-      createdBy: { select: { name: true, email: true } },
       recipients: {
         include: { customer: { select: { name: true, phone: true } } },
         orderBy: { id: 'asc' },
@@ -19,7 +18,14 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       _count: { select: { recipients: true } },
     },
   });
-  if (!c) return apiErr('Campaign tidak ditemukan.', 404);
+  if (!row) return apiErr('Campaign tidak ditemukan.', 404);
+  // Campaign TIDAK punya relasi `createdBy` di tenant client — ambil dari
+  // mirror User (Lapisan F).
+  const createdByUser = await prisma.user.findUnique({
+    where: { id: row.createdById },
+    select: { name: true, email: true },
+  });
+  const c = { ...row, createdBy: createdByUser };
   return apiOk({
     ...c,
     hasImage: !!c.imagePath,

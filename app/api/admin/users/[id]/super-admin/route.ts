@@ -17,11 +17,15 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   try {
     const ctx = await requireSuperAdmin(req);
 
-    const membership = await prisma.membership.findFirst({
+    // Membership TIDAK punya relasi `user` di tenant client — user diambil
+    // terpisah lalu digabung (bentuk hasil sama).
+    const membershipRow = await prisma.membership.findFirst({
       where: { id: params.id, organizationId: ctx.organizationId },
-      include: { user: true },
     });
-    if (!membership) return apiErr('Pengguna tidak ditemukan.', 404);
+    if (!membershipRow) return apiErr('Pengguna tidak ditemukan.', 404);
+    const memberUser = await prisma.user.findUnique({ where: { id: membershipRow.userId } });
+    if (!memberUser) return apiErr('Pengguna tidak ditemukan.', 404);
+    const membership = { ...membershipRow, user: memberUser };
 
     const body = await req.json().catch(() => null);
     const target = body?.isSuperAdmin === true;

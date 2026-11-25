@@ -7,7 +7,8 @@ import { parseReportFormat } from '@/lib/agents/format';
 import { getNineRouterConfig } from '@/lib/bot/ninerouter';
 import { ensureAgents, enqueueTask, cancelTask, retryTask } from '@/lib/agents/scheduler';
 import { publishAgentEvent } from '@/lib/agents/events';
-import { setSleeping } from '@/lib/kantor/sleep';
+import { setManualRest } from '@/lib/kantor/rest';
+import type { PrismaClient as TenantPrismaClient } from '@prisma/tenant-client';
 
 export const dynamic = 'force-dynamic';
 
@@ -84,8 +85,13 @@ export async function POST(req: Request) {
 
     // --- perintah kontrol ---
     if (intent.control === 'wake' || intent.control === 'sleep') {
-      const sleeping = intent.control === 'sleep';
-      setSleeping(ctx.organizationId, sleeping);
+      const wantSleep = intent.control === 'sleep';
+      // Fase 5b: "tidur"/"bangun" kini sesi MANUAL per-agent di DB tenant
+      // (pengganti boolean org-wide in-memory) — agent berjalan ke kasur
+      // mess-nya masing-masing; yang tanpa kasur tetap di tempatnya.
+      const tprisma = prisma as unknown as TenantPrismaClient;
+      const result = await setManualRest(tprisma, wantSleep);
+      const sleeping = result.sleeping;
       await publishAgentEvent(ctx.organizationId, 'kantor.sleep_changed', { sleeping });
       await audit({
         organizationId: ctx.organizationId, userId: ctx.userId,
@@ -95,10 +101,14 @@ export async function POST(req: Request) {
       });
       return apiOk({
         reply: sleeping
-          ? 'Mode Tidur dinyalakan — semua agent beristirahat.'
-          : intent.namedAgent
-            ? `${intent.namedAgent} dibangunkan — semua agent ikut bangun (mode Tidur berlaku untuk seluruh kantor).`
-            : 'Semua agent dibangunkan — mode Tidur dimatikan untuk seluruh kantor.',
+          ? result.started.length > 0
+            ? `Mode Tidur dinyalakan — ${result.started.length} agent berjalan ke mess untuk beristirahat.`
+            : 'Mode Tidur sudah menyala — semua agent beristirahat.'
+          : result.ended.length > 0
+            ? intent.namedAgent
+              ? `${intent.namedAgent} dibangunkan — semua agent ikut bangun (mode Tidur berlaku untuk seluruh kantor).`
+              : 'Semua agent dibangunkan — mode Tidur dimatikan untuk seluruh kantor.'
+            : 'Tidak ada agent yang sedang beristirahat.',
       });
     }
     if (intent.kind === 'control') {

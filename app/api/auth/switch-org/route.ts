@@ -16,11 +16,19 @@ export async function POST(req: Request) {
     const organizationId = String(body?.organizationId || '');
     if (!organizationId) return apiErr('organizationId wajib diisi.', 422);
 
-    const m = await prisma.membership.findFirst({
+    // Membership TIDAK punya relasi `organization` di tenant client —
+    // organisasi diambil terpisah (validasi + bentuk hasil sama).
+    const mRow = await prisma.membership.findFirst({
       where: { userId: ctx.userId, organizationId, status: 'ACTIVE' },
-      include: { organization: { select: { id: true, name: true, isActive: true } }, role: true },
+      include: { role: true },
     });
-    if (!m) return apiErr('Anda tidak memiliki akses ke kantor ini.', 403);
+    if (!mRow) return apiErr('Anda tidak memiliki akses ke kantor ini.', 403);
+    const mOrg = await prisma.organization.findUnique({
+      where: { id: organizationId },
+      select: { id: true, name: true, isActive: true },
+    });
+    if (!mOrg) return apiErr('Anda tidak memiliki akses ke kantor ini.', 403);
+    const m = { ...mRow, organization: mOrg };
     if (!m.organization.isActive && !ctx.isSuperAdmin) {
       return apiErr('Kantor ini sedang dinonaktifkan.', 403);
     }

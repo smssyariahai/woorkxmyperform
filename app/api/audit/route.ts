@@ -25,16 +25,31 @@ export async function GET(req: Request) {
       where.createdAt = { gte: d, lt: new Date(d.getTime() + 24 * 3600 * 1000) };
     }
 
-    const [total, items] = await Promise.all([
+    const [total, itemsRaw] = await Promise.all([
       prisma.auditLog.count({ where }),
+      // AuditLog TIDAK punya relasi `user` di tenant client — nama user
+      // diambil terpisah dari mirror User (bentuk item sama).
       prisma.auditLog.findMany({
         where,
-        include: { user: { select: { id: true, name: true, email: true } } },
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * perPage,
         take: perPage,
       }),
     ]);
+    const itemUserIds = [
+      ...new Set(itemsRaw.map((a) => a.userId).filter((id): id is string => !!id)),
+    ];
+    const itemUsers = itemUserIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: itemUserIds } },
+          select: { id: true, name: true, email: true },
+        })
+      : [];
+    const itemUserById = new Map(itemUsers.map((u) => [u.id, u]));
+    const items = itemsRaw.map((a) => ({
+      ...a,
+      user: a.userId ? (itemUserById.get(a.userId) ?? null) : null,
+    }));
     return apiOk({ items, page, perPage, total, totalPages: Math.ceil(total / perPage) });
   } catch (e: any) {
     if (e instanceof Response) return e;

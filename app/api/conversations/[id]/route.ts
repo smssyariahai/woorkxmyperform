@@ -9,20 +9,31 @@ export const dynamic = 'force-dynamic';
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   try {
     const ctx = await requirePermission('INBOX_VIEW');
-    const conv = await prisma.conversation.findFirst({
+    const row = await prisma.conversation.findFirst({
       where: { id: params.id, organizationId: ctx.organizationId },
       include: {
         customer: { include: { tags: { include: { tag: true } } } },
-        assignee: { select: { id: true, name: true } },
         channel: true,
         messages: {
-          include: { sender: { select: { id: true, name: true } } },
           orderBy: { createdAt: 'asc' },
           take: 500,
         },
       },
     });
-    if (!conv) return apiErr('Percakapan tidak ditemukan.', 404);
+    if (!row) return apiErr('Percakapan tidak ditemukan.', 404);
+    // Conversation TIDAK punya relasi `assignee` dan ConversationMessage
+    // TIDAK punya relasi `sender` di tenant client — ambil dari mirror User
+    // (Lapisan F).
+    const userIds = [...new Set([row.assigneeId, ...row.messages.map((m) => m.senderId)].filter((id): id is string => !!id))];
+    const users = userIds.length
+      ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })
+      : [];
+    const byId = new Map(users.map((u) => [u.id, u]));
+    const conv = {
+      ...row,
+      assignee: row.assigneeId ? byId.get(row.assigneeId) ?? null : null,
+      messages: row.messages.map((m) => ({ ...m, sender: m.senderId ? byId.get(m.senderId) ?? null : null })),
+    };
 
     // tandai dibaca
     if (conv.customer.unreadCount > 0) {

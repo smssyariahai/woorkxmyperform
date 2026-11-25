@@ -11,10 +11,16 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     const ctx = await requirePermission('CRM_VIEW');
     const notes = await prisma.note.findMany({
       where: { customerId: params.id, organizationId: ctx.organizationId },
-      include: { author: { select: { id: true, name: true } } },
       orderBy: { createdAt: 'desc' },
     });
-    return apiOk(notes);
+    // Note TIDAK punya relasi `author` di tenant client (Lapisan F) —
+    // ambil nama penulis dari mirror User.
+    const authorIds = [...new Set(notes.map((n) => n.authorId).filter((id): id is string => !!id))];
+    const authors = authorIds.length
+      ? await prisma.user.findMany({ where: { id: { in: authorIds } }, select: { id: true, name: true } })
+      : [];
+    const byId = new Map(authors.map((u) => [u.id, u]));
+    return apiOk(notes.map((n) => ({ ...n, author: byId.get(n.authorId) ?? null })));
   } catch (e: any) {
     if (e instanceof Response) return e;
     return apiErr('Gagal memuat catatan.', 500);
@@ -39,9 +45,8 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         authorId: ctx.userId,
         body: parsed.data.body.trim(),
       },
-      include: { author: { select: { id: true, name: true } } },
     });
-    return apiOk(note, 201);
+    return apiOk({ ...note, author: { id: ctx.userId, name: ctx.name } }, 201);
   } catch (e: any) {
     if (e instanceof Response) return e;
     return apiErr('Gagal menambah catatan.', 500);

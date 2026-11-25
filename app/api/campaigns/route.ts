@@ -18,12 +18,11 @@ export async function GET(req: Request) {
     const page = Math.max(1, parseInt(searchParams.get('page') ?? '1'));
     const perPage = 10;
     const where = { organizationId: ctx.organizationId };
-    const [total, items] = await Promise.all([
+    const [total, rows] = await Promise.all([
       prisma.campaign.count({ where }),
       prisma.campaign.findMany({
         where,
         include: {
-          createdBy: { select: { id: true, name: true } },
           _count: { select: { recipients: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -31,6 +30,14 @@ export async function GET(req: Request) {
         take: perPage,
       }),
     ]);
+    // Campaign TIDAK punya relasi `createdBy` di tenant client — ambil dari
+    // mirror User (Lapisan F).
+    const createdByIds = [...new Set(rows.map((r) => r.createdById))];
+    const createdByUsers = createdByIds.length
+      ? await prisma.user.findMany({ where: { id: { in: createdByIds } }, select: { id: true, name: true } })
+      : [];
+    const byId = new Map(createdByUsers.map((u) => [u.id, u]));
+    const items = rows.map((r) => ({ ...r, createdBy: byId.get(r.createdById) ?? null }));
     return apiOk({ items, page, perPage, total, totalPages: Math.ceil(total / perPage) });
   } catch (e: any) {
     if (e instanceof Response) return e;

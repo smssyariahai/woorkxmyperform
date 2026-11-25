@@ -23,6 +23,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
     const body = await req.json();
     const updates: any = {};
+    // Jejak perubahan permission (Fase 7 G3): diisi di dalam transaksi.
+    let permAdded: string[] = [];
+    let permRemoved: string[] = [];
+    let permissionsChanged = false;
     if (body?.name !== undefined) {
       const name = String(body.name).trim();
       if (!name) return apiErr('Nama role tidak boleh kosong.', 422);
@@ -59,6 +63,17 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
           select: { permissionId: true },
         });
         const haveIds = new Set(existing.map((r) => r.permissionId));
+        // Kunci permission yang ditambah / dihapus (untuk audit G3).
+        const keyById = new Map<string, string>();
+        for (const p of await tx.permission.findMany({
+          where: { id: { in: [...new Set([...wantIds, ...haveIds])] } },
+          select: { id: true, key: true },
+        })) {
+          keyById.set(p.id, p.key);
+        }
+        permAdded = [...wantIds].filter((id) => !haveIds.has(id)).map((id) => keyById.get(id) ?? id);
+        permRemoved = [...haveIds].filter((id) => !wantIds.has(id)).map((id) => keyById.get(id) ?? id);
+        permissionsChanged = permAdded.length > 0 || permRemoved.length > 0;
         for (const pid of wantIds) {
           if (!haveIds.has(pid)) {
             await tx.rolePermission.create({ data: { roleId: role.id, permissionId: pid } });
@@ -80,12 +95,18 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       publishModuleAccess(ctx.organizationId, null);
     }
 
+    // Fase 7 G3: perubahan permission dicatat terpisah dengan rincian
+    // tambah/hapus (bukan sekadar "mengedit role").
     await audit({
       organizationId: ctx.organizationId,
       userId: ctx.userId,
-      action: 'UPDATE_ROLE',
+      action: permissionsChanged ? 'UPDATE_ROLE_PERMISSIONS' : 'UPDATE_ROLE',
       module: 'ROLES',
-      description: `Mengedit role "${role.name}"`,
+      description: permissionsChanged
+        ? `Mengubah permission role "${role.name}"` +
+          (permAdded.length > 0 ? ` — tambah: ${permAdded.join(', ')}` : '') +
+          (permRemoved.length > 0 ? ` — hapus: ${permRemoved.join(', ')}` : '')
+        : `Mengedit role "${role.name}"`,
       ipAddress: getClientIp(req),
     });
     return apiOk({ id: role.id });

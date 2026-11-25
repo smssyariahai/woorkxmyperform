@@ -31,12 +31,11 @@ export async function GET(req: Request) {
     if (stage) where.stage = stage;
     if (score) where.score = score;
 
-    const [total, items] = await Promise.all([
+    const [total, rows] = await Promise.all([
       prisma.customer.count({ where }),
       prisma.customer.findMany({
         where,
         include: {
-          owner: { select: { id: true, name: true } },
           tags: { include: { tag: true } },
           conversations: { select: { channelType: true }, take: 1, orderBy: { lastMessageAt: 'desc' } },
         },
@@ -45,6 +44,17 @@ export async function GET(req: Request) {
         take: perPage,
       }),
     ]);
+    // Customer TIDAK punya relasi `owner` di tenant client — ambil dari
+    // mirror User (Lapisan F).
+    const ownerIds = [...new Set(rows.map((c) => c.ownerId).filter((id): id is string => !!id))];
+    const owners = ownerIds.length
+      ? await prisma.user.findMany({ where: { id: { in: ownerIds } }, select: { id: true, name: true } })
+      : [];
+    const byId = new Map(owners.map((u) => [u.id, u]));
+    const items = rows.map((c) => ({
+      ...c,
+      owner: c.ownerId ? byId.get(c.ownerId) ?? null : null,
+    }));
 
     return apiOk({
       items: items.map((c) => ({
@@ -103,8 +113,13 @@ export async function POST(req: Request) {
             }
           : undefined,
       },
-      include: { tags: { include: { tag: true } }, owner: { select: { id: true, name: true } } },
+      // Customer TIDAK punya relasi `owner` di tenant client — buat tanpa
+      // include owner, lalu ambil nama owner dari mirror User seperti GET.
+      include: { tags: { include: { tag: true } } },
     });
+    const owner = customer.ownerId
+      ? await prisma.user.findUnique({ where: { id: customer.ownerId }, select: { id: true, name: true } })
+      : null;
 
     await prisma.activity.create({
       data: {
@@ -126,7 +141,7 @@ export async function POST(req: Request) {
       userAgent: req.headers.get('user-agent') ?? undefined,
     });
 
-    return apiOk(customer, 201);
+    return apiOk({ ...customer, owner: owner ?? null }, 201);
   } catch (e: any) {
     if (e instanceof Response) return e;
     return apiErr('Gagal membuat pelanggan.', 500);

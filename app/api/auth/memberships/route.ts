@@ -8,15 +8,33 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   try {
     const ctx = await requireAuth();
-    const memberships = await prisma.membership.findMany({
+    // Membership TIDAK punya relasi `organization` di tenant client —
+    // organisasi diambil terpisah lalu digabung (bentuk hasil sama).
+    const rows = await prisma.membership.findMany({
       where: { userId: ctx.userId, status: 'ACTIVE' },
       include: {
-        organization: { select: { id: true, name: true, slug: true, isActive: true } },
         role: { select: { name: true } },
         department: { select: { name: true } },
       },
       orderBy: { joinedAt: 'asc' },
     });
+    const orgIds = [...new Set(rows.map((m) => m.organizationId))];
+    const orgs = orgIds.length
+      ? await prisma.organization.findMany({
+          where: { id: { in: orgIds } },
+          select: { id: true, name: true, slug: true, isActive: true },
+        })
+      : [];
+    const orgById = new Map(orgs.map((o) => [o.id, o]));
+    const memberships = rows.map((m) => ({
+      ...m,
+      organization: orgById.get(m.organizationId) ?? {
+        id: m.organizationId,
+        name: '',
+        slug: '',
+        isActive: false,
+      },
+    }));
     return apiOk(
       memberships
         .filter((m) => m.organization.isActive || ctx.isSuperAdmin)

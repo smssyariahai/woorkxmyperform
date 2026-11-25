@@ -41,11 +41,19 @@ export async function GET(req: Request) {
           },
         },
         messages: { orderBy: { createdAt: 'desc' }, take: 1 },
-        assignee: { select: { id: true, name: true } },
       },
       orderBy: { lastMessageAt: 'desc' },
       take: 100,
     });
+
+    // Conversation TIDAK punya relasi `assignee` di tenant client
+    // (Lapisan F: relasi ke User dihapus, userId hanya String) — ambil
+    // nama assignee dari mirror User, seperti di [id]/route.ts.
+    const assigneeIds = [...new Set(items.map((c) => c.assigneeId).filter((id): id is string => !!id))];
+    const assignees = assigneeIds.length
+      ? await prisma.user.findMany({ where: { id: { in: assigneeIds } }, select: { id: true, name: true } })
+      : [];
+    const byId = new Map(assignees.map((u) => [u.id, u]));
 
     return apiOk(
       items.map((c) => ({
@@ -53,7 +61,7 @@ export async function GET(req: Request) {
         channelType: c.channelType,
         status: c.status,
         assignedTo: c.assignedTo,
-        assignee: c.assignee,
+        assignee: c.assigneeId ? (byId.get(c.assigneeId) ?? null) : null,
         lastMessageAt: c.lastMessageAt,
         customer: c.customer,
         lastMessage: c.messages[0] ?? null,

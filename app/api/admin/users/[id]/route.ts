@@ -2,7 +2,9 @@ import { prisma } from '@/lib/db';
 import { requirePermission, getUserPermissions, assertCanGrant } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import { audit, getClientIp } from '@/lib/audit';
-import { getUserDetail, validateUserDetailInput, buildUserDetailOps } from '@/lib/user-detail';
+import { getUserDetail, validateUserDetailInput, buildUserDetailOps, runUserDetailOps } from '@/lib/user-detail';
+import { effectiveModuleLevel, getUserModuleLevels } from '@/lib/subscription';
+import { type ModularKey } from '@/lib/modular';
 import { publishModuleAccess } from '@/lib/realtime';
 
 export const dynamic = 'force-dynamic';
@@ -32,11 +34,16 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   try {
     const ctx = await requirePermission('USERS_DELETE', req);
-    const membership = await prisma.membership.findFirst({
+    // Membership TIDAK punya relasi `user` di tenant client — user diambil
+    // terpisah lalu digabung (bentuk hasil sama).
+    const membershipRow = await prisma.membership.findFirst({
       where: { id: params.id, organizationId: ctx.organizationId },
-      include: { user: true, role: true },
+      include: { role: true },
     });
-    if (!membership) return apiErr('Pengguna tidak ditemukan.', 404);
+    if (!membershipRow) return apiErr('Pengguna tidak ditemukan.', 404);
+    const memberUser = await prisma.user.findUnique({ where: { id: membershipRow.userId } });
+    if (!memberUser) return apiErr('Pengguna tidak ditemukan.', 404);
+    const membership = { ...membershipRow, user: memberUser };
     if (membership.userId === ctx.userId) return apiErr('Tidak dapat menghapus akun sendiri.', 409);
     if (membership.user.isSuperAdmin && !ctx.isSuperAdmin) {
       return apiErr('Hanya Administrator Pusat yang dapat menghapus akun Administrator Pusat.', 403);
@@ -78,11 +85,16 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
   try {
     const ctx = await requirePermission('USERS_UPDATE', req);
-    const membership = await prisma.membership.findFirst({
+    // Membership TIDAK punya relasi `user` di tenant client — user diambil
+    // terpisah lalu digabung (bentuk hasil sama).
+    const membershipRow = await prisma.membership.findFirst({
       where: { id: params.id, organizationId: ctx.organizationId },
-      include: { user: true, role: true },
+      include: { role: true },
     });
-    if (!membership) return apiErr('Pengguna tidak ditemukan.', 404);
+    if (!membershipRow) return apiErr('Pengguna tidak ditemukan.', 404);
+    const memberUser = await prisma.user.findUnique({ where: { id: membershipRow.userId } });
+    if (!memberUser) return apiErr('Pengguna tidak ditemukan.', 404);
+    const membership = { ...membershipRow, user: memberUser };
     const body = await req.json();
 
     const departmentId = body?.departmentId ? String(body.departmentId) : null;
@@ -137,6 +149,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       membershipId: membership.id,
     });
 
+    const detailOps = buildUserDetailOps(detail, { userId: membership.userId, membershipId: membership.id });
     const ops: any[] = [];
     if (Object.keys(userData).length > 0) {
       ops.push(prisma.user.update({ where: { id: membership.userId }, data: userData }));
@@ -152,9 +165,36 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
         },
       })
     );
-    ops.push(...buildUserDetailOps(detail, { userId: membership.userId, membershipId: membership.id }));
-
-    await prisma.$transaction(ops);
+    // Fase 7 G3: jejak perubahan hak modul — bandingkan level EFEKTIF
+    // sebelum vs sesudah simpan (hanya bila benar-benar berubah). Level
+    // efektif penting di sini: modul sensitif tanpa baris = NONE, bukan
+    // WRITE — jadi pengaktifan eksplisit NONE -> WRITE tercatat.
+    const oldLevels = await getUserModuleLevels(membership.userId, ctx.organizationId);
+    // Ops tenant (user/membership + detail tenant) satu transaksi;
+    // ops profil global transaksi terpisah (lihat runUserDetailOps).
+    await runUserDetailOps({ tenant: [...ops, ...detailOps.tenant], profile: detailOps.profile });
+    const newLevels = await getUserModuleLevels(membership.userId, ctx.organizationId);
+    const moduleChanges: string[] = [];
+    const changedKeys = new Set([
+      ...Object.keys(oldLevels),
+      ...Object.keys(newLevels),
+      ...detail.moduleAccess.map((m) => m.moduleKey),
+    ]);
+    for (const key of changedKeys) {
+      const before = effectiveModuleLevel(oldLevels, key as ModularKey);
+      const after = effectiveModuleLevel(newLevels, key as ModularKey);
+      if (before !== after) moduleChanges.push(`${key}: ${before} → ${after}`);
+    }
+    if (moduleChanges.length > 0) {
+      await audit({
+        organizationId: ctx.organizationId,
+        userId: ctx.userId,
+        action: 'UPDATE_MODULE_ACCESS',
+        module: 'USERS',
+        description: `Mengubah hak modul ${membership.user.name} (${membership.user.email}) — ${moduleChanges.join('; ')}`,
+        ipAddress: getClientIp(req),
+      });
+    }
 
     // Beri tahu sesi pengguna yang diedit: sidebar-nya refresh otomatis
     // (menu modul yang dimatikan langsung hilang tanpa reload manual).

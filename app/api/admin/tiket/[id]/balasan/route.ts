@@ -2,6 +2,7 @@ import { prisma } from '@/lib/db';
 import { requireSuperAdmin } from '@/lib/auth-helpers';
 import { apiOk, apiErr } from '@/lib/utils';
 import {
+  hydrateTicket,
   mapTicket,
   nextStatusAfterReply,
   notifyTicketReply,
@@ -26,9 +27,10 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     if (!content) return apiErr('Isi balasan wajib diisi.', 400);
     if (content.length > 5000) return apiErr('Isi balasan maksimal 5000 karakter.', 400);
     const nextStatus = nextStatusAfterReply(ticket, ctx.userId);
+    // TicketReply TIDAK punya relasi `author` di tenant client — nama
+    // penulis balasan adalah nama pengguna yang sedang login (ctx.name).
     const reply = await prisma.ticketReply.create({
       data: { ticketId: ticket.id, authorId: ctx.userId, content },
-      include: { author: { select: { name: true } } },
     });
     let fresh = ticket;
     if (nextStatus) {
@@ -38,17 +40,19 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       });
     }
     await notifyTicketReply(fresh, ctx.userId, ctx.name).catch(() => {});
-    const detail = await prisma.ticket.findUnique({
+    const found = await prisma.ticket.findUnique({
       where: { id: ticket.id },
       include: ticketDetailInclude,
     });
+    if (!found) return apiErr('Tiket tidak ditemukan.', 404);
+    const detail = await hydrateTicket(found);
     return apiOk(
       {
         reply: {
           id: reply.id,
           ticketId: reply.ticketId,
           authorId: reply.authorId,
-          authorName: reply.author?.name ?? 'Pengguna',
+          authorName: ctx.name ?? 'Pengguna',
           content: reply.content,
           createdAt: reply.createdAt.toISOString(),
         },
