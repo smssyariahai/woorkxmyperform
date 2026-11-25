@@ -1,4 +1,4 @@
-import { prisma } from './db';
+import { legacyPrisma as prisma } from './db';
 
 /**
  * Pengaturan global platform (Google OAuth, Cloudflare Turnstile, ...).
@@ -23,6 +23,12 @@ export const SETTING_KEYS = [
   'master.minBalance',
   'master.criticalBalance',
   'master.centerOrgId',
+  // SMTP (pengiriman email invoice §9.5 + pengumuman). DB didahulukan, lalu env.
+  'smtp.host',
+  'smtp.port',
+  'smtp.user',
+  'smtp.pass',
+  'smtp.from',
 ] as const;
 
 export type SettingKey = (typeof SETTING_KEYS)[number];

@@ -16,6 +16,10 @@ export const AVAILABLE_MODULES = [
   { key: 'kantor', label: 'Kantor Virtual' },
   { key: 'earsip', label: 'E-Arsip' },
   { key: 'meet', label: 'WOORK MEET' },
+  { key: 'perusahaan', label: 'Manajemen Perusahaan' },
+  { key: 'kalender', label: 'Work Calendar' },
+  { key: 'daily', label: 'Daily Workspace' },
+  { key: 'absensi', label: 'Attendance' },
 ] as const;
 
 export type ModuleKey = (typeof AVAILABLE_MODULES)[number]['key'];

@@ -5,15 +5,19 @@
 // semua modul aktif, tanpa batas kuota. Setelah seed Fase 7, keempat kantor
 // yang ada sudah punya Subscription.
 
-import { prisma } from './db';
+import { prisma, legacyPrisma } from './db';
 import { apiErr } from './utils';
 import {
   DEFAULT_MODULE_PRICES,
   LEGACY_TO_MODULAR,
   MODULAR_TO_LEGACY,
+  PAID_MODULE_KEYS,
+  SENSITIVE_MODULES_DEFAULT_NONE,
   type ModularKey,
   type ModuleAccessLevel,
 } from './modular';
+
+export { PAID_MODULE_KEYS } from './modular';
 
 export interface SubscriptionModuleRow {
   moduleKey: string;
@@ -68,9 +72,21 @@ export function isSubscriptionActive(sub: SubscriptionInfo | null): boolean {
   return effectiveSubscriptionStatus(sub) === 'ACTIVE';
 }
 
-/** Modul non-billable (Dashboard, Setting, Administrator Pusat, Islami, Emas, Pengumuman, TAL, Koperasi, Tiket, Kantor Virtual, E-Sign, E-Arsip, WOORK MEET) selalu aktif. */
+/** Modul non-billable (Dashboard, Setting, Administrator Pusat, Pengumuman, Tiket, E-Sign, E-Arsip, WOORK MEET, Manajemen Perusahaan, Work Calendar, Daily Workspace, Attendance) selalu aktif. Modul berbayar Bab 9 diatur cabang di bawah. */
 export function isModuleSubscribed(sub: SubscriptionInfo | null, moduleKey: ModularKey): boolean {
-  if (moduleKey === 'dashboard' || moduleKey === 'setting' || moduleKey === 'pusat' || moduleKey === 'islami' || moduleKey === 'emas' || moduleKey === 'pengumuman' || moduleKey === 'tal' || moduleKey === 'koperasi' || moduleKey === 'tiket' || moduleKey === 'kantor' || moduleKey === 'esign' || moduleKey === 'earsip' || moduleKey === 'meet') return true;
+  if (moduleKey === 'dashboard' || moduleKey === 'setting' || moduleKey === 'pusat' || moduleKey === 'pengumuman' || moduleKey === 'tiket' || moduleKey === 'esign' || moduleKey === 'earsip' || moduleKey === 'meet' || moduleKey === 'perusahaan' || moduleKey === 'kalender' || moduleKey === 'daily' || moduleKey === 'absensi') return true;
+  if ((PAID_MODULE_KEYS as readonly string[]).includes(moduleKey)) {
+    // Fase 7 (Bab 8): paket menegakkan modul berbayar. Tanpa baris
+    // Subscription = data lama (grandfathering, semua aktif). Tetapi
+    // TANPA BARIS modul berbayar = modul BELUM AKTIF (fail-closed,
+    // 2026-11-25): modul tidak boleh muncul di tenant baru sebelum
+    // sinkronisasi paket (approve / change-package / skrip) menulis
+    // barisnya. Baris yang ada dibaca apa adanya: hanya ACTIVE yang aktif.
+    if (!sub) return true;
+    const row = sub.modules.find((m) => m.moduleKey === moduleKey);
+    if (!row) return false;
+    return row.status === 'ACTIVE';
+  }
   if (!sub) return true; // grandfathering
   if (sub.modules.length === 0) return true; // belum ada pilihan modul = semua aktif
   return sub.modules.some((m) => m.moduleKey === moduleKey && m.status === 'ACTIVE');
@@ -78,7 +94,7 @@ export function isModuleSubscribed(sub: SubscriptionInfo | null, moduleKey: Modu
 
 /** Daftar modul yang aktif untuk kantor (dipakai Sidebar + form). */
 export function activeModulesOf(sub: SubscriptionInfo | null): ModularKey[] {
-  const all: ModularKey[] = ['dashboard', 'tal', 'koperasi', 'emas', 'islami', 'pengumuman', 'tiket', 'kantor', 'chat', 'hris', 'esign', 'earsip', 'meet', 'audit', 'setting', 'pusat'];
+  const all: ModularKey[] = ['dashboard', 'tal', 'koperasi', 'emas', 'islami', 'pengumuman', 'tiket', 'kantor', 'chat', 'hris', 'esign', 'earsip', 'meet', 'perusahaan', 'kalender', 'daily', 'absensi', 'audit', 'setting', 'pusat'];
   return all.filter((k) => isModuleSubscribed(sub, k));
 }
 
@@ -112,7 +128,9 @@ export async function getUserModuleLevels(
  * - Baris kunci modul baru (mis. 'chat') berlaku untuk seluruh modul.
  * - Bila tidak ada: baris kunci lama anaknya (mis. 'inbox') dipakai bila
  *   dipanggil dengan legacyKey (pengecekan per halaman/permission).
- * - Tanpa baris apa pun = WRITE (ikut aturan kantor).
+ * - Tanpa baris apa pun = WRITE (ikut aturan kantor) — KECUALI modul
+ *   sensitif (Bab 8, Fase 7): tanpa baris = NONE, admin harus mengaktifkan
+ *   eksplisit (baris WRITE). Lihat SENSITIVE_MODULES_DEFAULT_NONE.
  */
 export function effectiveModuleLevel(
   levels: Record<string, ModuleAccessLevel>,
@@ -121,7 +139,7 @@ export function effectiveModuleLevel(
 ): ModuleAccessLevel {
   if (levels[moduleKey]) return levels[moduleKey];
   if (legacyKey && levels[legacyKey]) return levels[legacyKey];
-  return 'WRITE';
+  return SENSITIVE_MODULES_DEFAULT_NONE.has(moduleKey) ? 'NONE' : 'WRITE';
 }
 
 /** Level efektif satu modul dari baris legacy saja (untuk tampilan form). */
@@ -131,9 +149,13 @@ export function moduleLevelFromLegacy(
 ): ModuleAccessLevel {
   if (levels[moduleKey]) return levels[moduleKey];
   const children = MODULAR_TO_LEGACY[moduleKey];
-  if (children.length === 0) return 'WRITE';
+  const defaultLevel: ModuleAccessLevel = SENSITIVE_MODULES_DEFAULT_NONE.has(moduleKey)
+    ? 'NONE'
+    : 'WRITE';
+  if (children.length === 0) return defaultLevel;
   const childLevels = children.map((c) => levels[c]).filter(Boolean) as ModuleAccessLevel[];
   if (childLevels.length > 0 && childLevels.every((l) => l === 'NONE')) return 'NONE';
+  if (childLevels.length === 0) return defaultLevel;
   return 'WRITE';
 }
 
@@ -177,7 +199,9 @@ export interface ModulePriceRow {
 
 /** Harga aktif per modul berbayar (tabel ModulePrice; fallback harga default). */
 export async function getModulePrices(): Promise<ModulePriceRow[]> {
-  const rows = await prisma.modulePrice.findMany({
+  // ModulePrice adalah data platform global (hanya ada di woork_saas) —
+  // baca lewat legacyPrisma, bukan proxy tenant.
+  const rows = await legacyPrisma.modulePrice.findMany({
     where: { isActive: true },
     select: { moduleKey: true, monthlyPerUser: true, yearlyPerUser: true },
   });

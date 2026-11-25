@@ -71,23 +71,75 @@ export function mapTicket(row: TicketRow): TicketItem {
   };
 }
 
-/** Include standar untuk detail/daftar tiket. */
+/**
+ * Include standar untuk detail/daftar tiket.
+ *
+ * Ticket TIDAK punya relasi `organization`/`createdBy`/`assignedTo` di
+ * tenant client (dan TicketReply tidak punya `author`) — hanya `_count`
+ * dan `replies` (relasi antar-model tenant) yang aman di-include.
+ * Nama organisasi + nama user dilengkapi `hydrateTickets` di bawah
+ * (lookup mirror Organization/User terpisah, pola baku Lapisan F).
+ */
 export const ticketInclude = {
-  organization: { select: { name: true } },
-  createdBy: { select: { name: true, email: true } },
-  assignedTo: { select: { name: true } },
   _count: { select: { replies: true } },
 } as const;
 
 export const ticketDetailInclude = {
-  organization: { select: { name: true } },
-  createdBy: { select: { name: true, email: true } },
-  assignedTo: { select: { name: true } },
   replies: {
     orderBy: { createdAt: 'asc' },
-    include: { author: { select: { name: true } } },
   },
 } as const;
+
+type TicketHydrateRow = {
+  organizationId: string;
+  createdById: string;
+  assignedToId: string | null;
+  replies?: Array<{ authorId: string } & Record<string, unknown>>;
+  [key: string]: unknown;
+};
+
+/**
+ * Lengkapi baris tiket dengan `organization` / `createdBy` /
+ * `assignedTo` / `replies[].author` dari mirror Organization/User,
+ * supaya `mapTicket` menerima bentuk yang sama seperti include lama.
+ * Satu query user + satu query organisasi untuk seluruh baris (bukan
+ * per baris). Aman dipakai rute tenant maupun Administrator Pusat:
+ * proxy `prisma` merutekan ke DB yang benar sesuai sesi pemanggil.
+ */
+export async function hydrateTickets(rows: TicketHydrateRow[]): Promise<TicketHydrateRow[]> {
+  const orgIds = [...new Set(rows.map((r) => r.organizationId))];
+  const userIds = [
+    ...new Set(
+      rows
+        .flatMap((r) => [r.createdById, r.assignedToId, ...(r.replies ?? []).map((rep) => rep.authorId)])
+        .filter((id): id is string => !!id)
+    ),
+  ];
+  const [orgs, users] = await Promise.all([
+    orgIds.length
+      ? prisma.organization.findMany({ where: { id: { in: orgIds } }, select: { id: true, name: true } })
+      : [],
+    userIds.length
+      ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, email: true } })
+      : [],
+  ]);
+  const orgById = new Map(orgs.map((o) => [o.id, o]));
+  const userById = new Map(users.map((u) => [u.id, u]));
+  return rows.map((r) => ({
+    ...r,
+    organization: orgById.get(r.organizationId) ?? null,
+    createdBy: userById.get(r.createdById) ?? null,
+    assignedTo: r.assignedToId ? userById.get(r.assignedToId) ?? null : null,
+    ...(r.replies
+      ? { replies: r.replies.map((rep) => ({ ...rep, author: userById.get(rep.authorId) ?? null })) }
+      : {}),
+  }));
+}
+
+/** hydrateTickets untuk satu baris tiket. */
+export async function hydrateTicket(row: TicketHydrateRow): Promise<TicketHydrateRow> {
+  return (await hydrateTickets([row]))[0];
+}
 
 export async function userCanManageTicket(ctx: AuthContext): Promise<boolean> {
   if (ctx.isSuperAdmin) return true;
@@ -201,12 +253,22 @@ export function nextStatusAfterReply(ticket: { status: string; createdById: stri
 
 /** Anggota aktif kantor (id + nama) — untuk dropdown penugasan di detail tiket. */
 export async function listTicketMembers(organizationId: string): Promise<Array<{ id: string; name: string }>> {
+  // Membership TIDAK punya relasi `user` di tenant client — user diambil
+  // terpisah lalu digabung (urutan joinedAt dipertahankan).
   const rows = await prisma.membership.findMany({
     where: { organizationId, status: 'ACTIVE' },
-    include: { user: { select: { id: true, name: true } } },
+    select: { userId: true },
     orderBy: { joinedAt: 'asc' },
   });
-  return rows.map((r) => ({ id: r.user.id, name: r.user.name }));
+  const userIds = [...new Set(rows.map((r) => r.userId))];
+  const users = userIds.length
+    ? await prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })
+    : [];
+  const userById = new Map(users.map((u) => [u.id, u]));
+  return rows
+    .map((r) => userById.get(r.userId))
+    .filter((u): u is { id: string; name: string } => !!u)
+    .map((u) => ({ id: u.id, name: u.name }));
 }
 
 /** User aktif kantor ini yang memegang TIKET_MANAGE (= admin kantor). */

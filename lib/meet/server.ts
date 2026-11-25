@@ -106,17 +106,78 @@ export function meetVisibilityWhere(
   };
 }
 
-/** Include standar: host + peserta (dengan info user + token tamu). */
+/** Include standar: peserta (dengan token tamu) + hitungan. Host + user
+ * peserta TIDAK di-include di sini (relasi itu TIDAK ADA di tenant
+ * client) — digabung belakangan via `attachMeetingUsers`. */
 export const meetingInclude = {
-  host: { select: { id: true, name: true, email: true, avatar: true } },
   participants: {
     include: {
-      user: { select: { id: true, name: true, email: true, avatar: true } },
       guestToken: { select: { accessToken: true, tokenExpiresAt: true, revokedAt: true, scope: true } },
     },
   },
   _count: { select: { agendaItems: true, notes: true, chatMessages: true, recordings: true } },
 } as const;
+
+/**
+ * Gabungkan host + user peserta ke baris meeting (Lapisan F). Bentuk
+ * hasil sama seperti `meetingInclude` lama (`host: {...} | null`,
+ * `participants[].user: {...} | null`).
+ */
+export async function attachMeetingUsers<
+  T extends { hostId: string; participants?: Array<{ userId: string | null }> },
+>(
+  rows: T[]
+): Promise<
+  Array<
+    Omit<T, 'participants'> & {
+      host: { id: string; name: string; email: string; avatar: string | null } | null;
+      participants: Array<
+        NonNullable<T['participants']>[number] & {
+          user: { id: string; name: string; email: string; avatar: string | null } | null;
+        }
+      >;
+    }
+  >
+> {
+  const userIds = [
+    ...new Set(
+      [
+        ...rows.map((m) => m.hostId),
+        ...rows.flatMap((m) => (m.participants ?? []).map((p) => p.userId)),
+      ].filter((id): id is string => !!id)
+    ),
+  ];
+  const users = userIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, name: true, email: true, avatar: true },
+      })
+    : [];
+  const byId = new Map(users.map((u) => [u.id, u]));
+  return rows.map((m) => ({
+    ...m,
+    host: byId.get(m.hostId) ?? null,
+    participants: (m.participants ?? []).map((p) => ({
+      ...p,
+      user: p.userId ? (byId.get(p.userId) ?? null) : null,
+    })),
+  }));
+}
+
+/** Gabungkan user ke baris MeetingParticipant (untuk create/update peserta). */
+export async function attachParticipantUsers<T extends { userId: string | null }>(
+  rows: T[]
+): Promise<Array<T & { user: { id: string; name: string; email: string; avatar: string | null } | null }>> {
+  const userIds = [...new Set(rows.map((p) => p.userId).filter((id): id is string => !!id))];
+  const users = userIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, name: true, email: true, avatar: true },
+      })
+    : [];
+  const byId = new Map(users.map((u) => [u.id, u]));
+  return rows.map((p) => ({ ...p, user: p.userId ? (byId.get(p.userId) ?? null) : null }));
+}
 
 export type MeetingRow = {
   id: string;
@@ -272,7 +333,8 @@ export async function findMeetingOr404(id: string) {
     include: meetingInclude,
   });
   if (!meeting) throw apiErr('Meeting tidak ditemukan.', 404);
-  return meeting as unknown as MeetingRow;
+  const [withUsers] = await attachMeetingUsers([meeting]);
+  return withUsers as unknown as MeetingRow;
 }
 
 /** Apakah user boleh MELIHAT meeting ini (host/peserta/MEET_MANAGE). */
@@ -414,11 +476,9 @@ export async function verifyGuestToken(
   const row = await prisma.meetingGuestToken.findUnique({
     where: { accessToken: token },
     include: {
-      participant: {
-        include: {
-          user: { select: { id: true, name: true, email: true, avatar: true } },
-        },
-      },
+      // MeetingParticipant TIDAK punya relasi `user` di tenant client —
+      // digabung belakangan via `attachParticipantUsers`.
+      participant: true,
       meeting: { include: meetingInclude },
     },
   });
@@ -435,6 +495,8 @@ export async function verifyGuestToken(
   ) {
     throw apiErr('Tautan undangan sudah kedaluwarsa atau dicabut.', 410);
   }
+  const [participantWithUser] = await attachParticipantUsers([row.participant]);
+  const [meetingWithUsers] = await attachMeetingUsers([row.meeting]);
   return {
     token: {
       id: row.id,
@@ -445,8 +507,8 @@ export async function verifyGuestToken(
       scope: row.scope,
       revokedAt: row.revokedAt,
     },
-    participant: row.participant as unknown as MeetingParticipantRow,
-    meeting: row.meeting as unknown as MeetingRow,
+    participant: participantWithUser as unknown as MeetingParticipantRow,
+    meeting: meetingWithUsers as unknown as MeetingRow,
   };
 }
 

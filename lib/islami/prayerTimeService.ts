@@ -118,7 +118,9 @@ export function calculateKemenagAstronomicalTimes(
   date: Date,
   lat: number,
   lng: number,
-  timezoneOffsetHours?: number
+  timezoneOffsetHours?: number,
+  /** Panjang bayangan Asar: 1 = Shafi'i (default Kemenag), 2 = Hanafi. */
+  asrShadowLength = 1
 ): {
   imsak: string;
   subuh: string;
@@ -129,7 +131,10 @@ export function calculateKemenagAstronomicalTimes(
   maghrib: string;
   isya: string;
 } {
-  const tz = timezoneOffsetHours ?? (lng > 120 ? 9 : lng > 105 ? 8 : 7); // Default auto WIB / WITA / WIT
+  // Batas zona Indonesia: WIB (UTC+7) s.d. ~114,5°BT, WITA (UTC+8)
+  // s.d. ~131°BT, WIT (UTC+9) di atas itu. (Sebelumnya memakai batas
+  // 105/120 sehingga Jakarta 106,8°BT jatuh ke WITA — salah 1 jam.)
+  const tz = timezoneOffsetHours ?? (lng >= 131 ? 9 : lng >= 114.5 ? 8 : 7); // Default auto WIB / WITA / WIT
   const dayOfYear = Math.floor((date.getTime() - new Date(date.getFullYear(), 0, 0).getTime()) / (1000 * 60 * 60 * 24));
   
   // Solar Declination & Equation of Time
@@ -154,8 +159,8 @@ export function calculateKemenagAstronomicalTimes(
   const sunriseHA = calculateHourAngle(-0.833) || 6.0;
   const isyaHA = calculateHourAngle(-18) || 6.1;
 
-  // Ashar calculation (Shafi'i shadow length = 1)
-  const shadowLength = 1;
+  // Ashar calculation (Shafi'i shadow length = 1, Hanafi = 2)
+  const shadowLength = asrShadowLength;
   const asharAltRad = Math.atan(1 / (shadowLength + Math.tan(Math.abs(latRad - declination))));
   const asharHA = (Math.acos((Math.sin(asharAltRad) - Math.sin(latRad) * Math.sin(declination)) / (Math.cos(latRad) * Math.cos(declination))) * (180 / Math.PI)) / 15;
 
@@ -200,7 +205,8 @@ export function calculateKemenagAstronomicalTimes(
  */
 export async function getOfficialPrayerSchedule(
   location: UserSavedLocation,
-  date = new Date()
+  date = new Date(),
+  opts?: { asrMethod?: 'shafii' | 'hanafi'; timezoneOffsetHours?: number }
 ): Promise<DailyPrayerSchedule> {
   const dateFormatted = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   let rawTimes: { [key: string]: string } | null = null;
@@ -209,8 +215,10 @@ export async function getOfficialPrayerSchedule(
 
   try {
     // Method 20 = Kemenag RI (Kementerian Agama RI) on AlAdhan Official Engine
+    // school: 0 = Shafi'i (default), 1 = Hanafi (untuk perhitungan Asar).
+    const school = opts?.asrMethod === 'hanafi' ? 1 : 0;
     const res = await fetch(
-      `https://api.aladhan.com/v1/timings/${Math.floor(date.getTime() / 1000)}?latitude=${location.lat}&longitude=${location.lng}&method=20`
+      `https://api.aladhan.com/v1/timings/${Math.floor(date.getTime() / 1000)}?latitude=${location.lat}&longitude=${location.lng}&method=20&school=${school}`
     );
     if (res.ok) {
       const data = await res.json();
@@ -247,7 +255,13 @@ export async function getOfficialPrayerSchedule(
 
   // Fallback to high-precision Kemenag astronomical formula
   if (!rawTimes || !rawTimes.subuh) {
-    rawTimes = calculateKemenagAstronomicalTimes(date, location.lat, location.lng);
+    rawTimes = calculateKemenagAstronomicalTimes(
+      date,
+      location.lat,
+      location.lng,
+      opts?.timezoneOffsetHours,
+      opts?.asrMethod === 'hanafi' ? 2 : 1
+    );
     source = 'kemenag_astronomical';
   }
 

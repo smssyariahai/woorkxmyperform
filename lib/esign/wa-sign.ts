@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/db';
+import { prisma, legacyPrisma } from '@/lib/db';
 import { findUserByPhone } from './qa';
 import { isSignerTurn } from './workflow';
 import { executeSign, savedSignaturePath, SignError } from './sign-service';
@@ -177,7 +177,8 @@ async function findPendingSignableDocs(userId: string, orgId: string): Promise<P
 export async function isEsignPinSender(userId: string, orgId: string): Promise<boolean> {
   const docs = await findPendingSignableDocs(userId, orgId).catch(() => []);
   if (docs.length > 0) return true;
-  const profile = await prisma.esignProfile
+  // EsignProfile adalah model platform global (hanya ada di woork_saas).
+  const profile = await legacyPrisma.esignProfile
     .findUnique({ where: { userId }, select: { id: true } })
     .catch(() => null);
   return !!profile;
@@ -185,7 +186,8 @@ export async function isEsignPinSender(userId: string, orgId: string): Promise<b
 
 /** Prasyarat tanda tangan via WA: PIN sudah diatur + tanda tangan tersimpan. */
 async function checkSignPrereqs(userId: string): Promise<{ ok: true } | { ok: false; message: string }> {
-  const profile = await prisma.esignProfile.findUnique({
+  // EsignProfile adalah model platform global (hanya ada di woork_saas).
+  const profile = await legacyPrisma.esignProfile.findUnique({
     where: { userId },
     select: { pinHash: true, signaturePath: true },
   });

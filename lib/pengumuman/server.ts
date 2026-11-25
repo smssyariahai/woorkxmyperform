@@ -9,7 +9,7 @@ import {
 } from './preferences';
 import {
   MAX_EMAIL_RECIPIENTS,
-  isMailConfigured,
+  isSmtpConfigured,
   sendAnnouncementEmail,
 } from '@/lib/mailer';
 
@@ -118,15 +118,22 @@ export async function getActiveMembers(
 ): Promise<OrgMember[]> {
   const memberships = await prisma.membership.findMany({
     where: { organizationId, status: 'ACTIVE' },
-    include: {
-      user: { select: { id: true, name: true, email: true, status: true } },
-    },
     orderBy: { joinedAt: 'asc' },
   });
+  // Membership TIDAK punya relasi `user` di tenant client — gabung dari
+  // mirror User (Lapisan F).
+  const userIds = [...new Set(memberships.map((m) => m.userId))];
+  const users = userIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, name: true, email: true, status: true },
+      })
+    : [];
+  const byId = new Map(users.map((u) => [u.id, u]));
   const seen = new Set<string>();
   const members: OrgMember[] = [];
   for (const m of memberships) {
-    const u = m.user;
+    const u = byId.get(m.userId);
     if (!u || u.status !== 'ACTIVE' || !u.email) continue;
     const email = u.email.toLowerCase();
     if (seen.has(email)) continue;
@@ -158,6 +165,37 @@ export async function resolveRecipients(
 export function announcementLink(id: string): string {
   const base = (process.env.NEXT_PUBLIC_APP_URL || '').replace(/\/$/, '');
   return `${base}/pengumuman/${id}`;
+}
+
+/**
+ * Lampirkan nama author ke baris pengumuman.
+ * Model Announcement TENANT tidak punya relasi `author` (authorId plain
+ * String) — `include: { author }` melempar di tenant client. Lookup manual
+ * ini bekerja di legacy maupun tenant (keduanya punya User name/email).
+ * Bila author tidak ditemukan (mis. authorId PlatformUser dari pengumuman
+ * platform), author = null dan mapAnnouncement menampilkan ''.
+ */
+export async function attachAuthors<T extends AnnouncementRow>(
+  rows: T[]
+): Promise<Array<T & { author: { name: string; email: string } | null }>> {
+  const ids = [...new Set(rows.map((r) => r.authorId).filter(Boolean))];
+  const users = ids.length
+    ? await prisma.user.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, name: true, email: true },
+      })
+    : [];
+  const byId = new Map(
+    users.map((u) => [u.id, { name: u.name, email: u.email }])
+  );
+  return rows.map((r) => ({ ...r, author: byId.get(r.authorId) ?? null }));
+}
+
+export async function attachAuthor<T extends AnnouncementRow>(
+  row: T
+): Promise<T & { author: { name: string; email: string } | null }> {
+  const [withAuthor] = await attachAuthors([row]);
+  return withAuthor;
 }
 
 export const PRIORITIES = ['normal', 'penting', 'mendesak'] as const;
@@ -282,8 +320,9 @@ export interface FanOutResult {
  * Fan-out SATU baris Announcement (draft) menjadi terkirim — langkah yang
  * SAMA persis dengan POST /api/pengumuman/[id]/publish (Gelombang 3), tapi
  * diparameterisasi organizationId dari barisnya sendiri, bukan dari sesi.
- * Dipakai pengumuman platform (/api/admin/pengumuman): tiap kantor tujuan
- * punya barisnya sendiri, lalu baris itu di-fan-out lewat fungsi ini.
+ * Dipakai publish per-kantor. Pengumuman PLATFORM (Fase 7 §7.8) memakai
+ * fan-out sendiri di lib/tenant/platform-announcements.ts (tenant client
+ * eksplisit + delivery master) dan TIDAK memakai fungsi ini.
  * Route publish per-kantor TIDAK diubah dan tetap memakai salinannya sendiri.
  * Melempar Error bila baris sudah published atau tidak ada penerima.
  */
@@ -343,7 +382,6 @@ export async function fanOutAnnouncement(
         emailFailed: 0,
         emailError: null,
       },
-      include: { author: { select: { name: true, email: true } } },
     }),
     ...(appRecipients.length > 0
       ? [
@@ -369,10 +407,10 @@ export async function fanOutAnnouncement(
     if (emailRecipients.length === 0) {
       emailStatus = 'skipped';
       emailError = 'Tidak ada penerima email.';
-    } else if (!isMailConfigured()) {
+    } else if (!(await isSmtpConfigured())) {
       emailStatus = 'not_configured';
       emailError =
-        'SMTP belum dikonfigurasi. Isi SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASS di .env.';
+        'SMTP belum dikonfigurasi. Isi pengaturan SMTP di Pengaturan Sistem (/admin/pengaturan).';
     } else {
       const link = announcementLink(row.id);
       for (const m of emailRecipients) {
@@ -408,10 +446,9 @@ export async function fanOutAnnouncement(
 
   const fresh = await prisma.announcement.findUnique({
     where: { id: row.id },
-    include: { author: { select: { name: true, email: true } } },
   });
   return {
-    announcement: mapAnnouncement(fresh!),
+    announcement: mapAnnouncement(await attachAuthor(fresh!)),
     inAppSent: appRecipients.length,
     email: { status: emailStatus, sent: emailSent, failed: emailFailed },
     recipients: recipients.length,

@@ -10,6 +10,8 @@ export type KantorStationState =
   | 'Working'
   | 'Reviewing'
   | 'Collaborating'
+  | 'Praying'
+  | 'Briefing'
   | 'Offline'
   | 'Unknown';
 
@@ -44,8 +46,18 @@ export interface KantorStation {
   name: string;
   role: string;
   avatarColor: string;
-  room: 'Workspace' | 'Lounge';
-  roomPosition: 'desk' | 'meeting-area' | 'lounge-seat' | 'pantry' | 'game-room';
+  /**
+   * Ruangan tempat agent berada. Nilai baru Fase 3b (divisi → ruangan):
+   * 'Tech Cluster' = klaster divisi lantai 2; 'CEO Office' / 'Strategy & PM' /
+   * 'Legal' / 'AI Command Center' = ruangan eksekutif lantai 3. Nilai lama
+   * TIDAK berubah; agent tanpa divisi tetap 'Workspace' / 'Lounge'.
+   */
+  room: 'Workspace' | 'Lounge' | 'Musala' | 'Meeting Room' | 'Tech Cluster' | 'CEO Office' | 'Strategy & PM' | 'Legal' | 'AI Command Center';
+  /**
+   * Posisi di dalam ruangan. Nilai baru Fase 3b: 'tech-desk' (meja klaster
+   * lantai 2) dan 'exec-desk' (meja ruangan eksekutif lantai 3).
+   */
+  roomPosition: 'desk' | 'meeting-area' | 'lounge-seat' | 'pantry' | 'game-room' | 'musala-saf' | 'tech-desk' | 'exec-desk';
   /** Nomor meja 1-based, urutan agent di kantor (diurutkan berdasarkan nama). */
   seat: number;
   state: KantorStationState;
@@ -57,6 +69,13 @@ export interface KantorStation {
   tools: string[];
   description: string | null;
   systemInstructions: string | null;
+  /**
+   * Divisi agent (Fase 3b — dari `Agent.departmentId`, nullable). Bila null,
+   * agent berperilaku persis seperti sebelum Fase 3 (meja L1). `floor` =
+   * lantai divisi (Department.floor); `zone` = nama ruangan divisi
+   * (Department.zone, mis. 'CEO Office' / 'Strategy & PM').
+   */
+  department?: { id: string; name: string; floor: number | null; zone: string | null } | null;
   /** Placement idle dari server (hanya bila state Idle). */
   idle?: KantorIdlePlacement | null;
 }
@@ -83,6 +102,35 @@ export interface KantorOfficeSnapshot {
    *  per org; diubah lewat POST /api/kantor/theme, disiarkan lewat event
    *  SSE `kantor.theme_changed` (pola yang sama dengan Tidur). */
   theme: 'dark' | 'light';
+  /** Sesi salat bersama per kantor (Musala — state server in-memory +
+   *  persistensi DB PrayerSession). Bila active, agent yang ikut sesi
+   *  berjalan ke musala dan menempati saf; disiarkan lewat event SSE
+   *  `kantor.prayer_changed` (pola yang sama dengan Tidur/Tema). */
+  prayer: KantorPrayerState;
+  /** Sesi Morning Briefing bersama per kantor (ruang meeting, 08:00 WIB
+   *  — state server in-memory + persistensi DB BriefingSession).
+   *  Disiarkan lewat event SSE `kantor.briefing_changed`. */
+  briefing: KantorBriefingState;
+}
+
+/** State sesi salat yang sedang berjalan (atau terakhir) di kantor ini. */
+export interface KantorPrayerState {
+  active: boolean;
+  prayerName: 'subuh' | 'dzuhur' | 'ashar' | 'maghrib' | 'isya' | null;
+  prayerLabel: string | null;
+  startedAt: string | null;
+  endsAt: string | null;
+  sessionId: string | null;
+}
+
+/** State sesi Morning Briefing yang sedang berjalan (atau terakhir). */
+export interface KantorBriefingState {
+  active: boolean;
+  phase: 'SCHEDULED' | 'PREPARING' | 'AGENTS_MOVING' | 'GATHERING' | 'IN_PROGRESS' | 'CLOSING' | 'RETURNING' | 'COMPLETED' | 'FAILED' | null;
+  startedAt: string | null;
+  endsAt: string | null;
+  sessionId: string | null;
+  leaderName: string | null;
 }
 
 export type KantorTaskStatus =

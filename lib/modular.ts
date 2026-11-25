@@ -10,7 +10,7 @@
 
 import { PERMISSION_CATALOG } from './permissions';
 
-export type ModularKey = 'dashboard' | 'chat' | 'hris' | 'audit' | 'setting' | 'pusat' | 'islami' | 'emas' | 'pengumuman' | 'tal' | 'koperasi' | 'tiket' | 'kantor' | 'esign' | 'earsip' | 'meet';
+export type ModularKey = 'dashboard' | 'chat' | 'hris' | 'audit' | 'setting' | 'pusat' | 'islami' | 'emas' | 'pengumuman' | 'tal' | 'koperasi' | 'tiket' | 'kantor' | 'esign' | 'earsip' | 'meet' | 'perusahaan' | 'kalender' | 'daily' | 'absensi';
 
 export type ModuleAccessLevel = 'READ' | 'WRITE' | 'NONE';
 
@@ -168,7 +168,10 @@ export const MODULAR_MODULES: ModularModuleDef[] = [
     // (hanya menampilkan agent/tugas/aktivitas dari DB). Selalu aktif
     // (non-billable, pola Tiket). Sub-route /kantor/* dikenali guard lewat
     // prefix '/kantor' (pageModuleForPath).
-    pages: [{ href: '/kantor', label: 'Kantor Virtual', legacyKey: 'kantor' }],
+    pages: [
+      { href: '/kantor', label: 'Kantor Virtual', legacyKey: 'kantor' },
+      { href: '/admin-kantor/residence', label: 'Staff Residence', perms: ['DEPARTMENTS_VIEW'] },
+    ],
   },
   {
     key: 'earsip',
@@ -191,6 +194,57 @@ export const MODULAR_MODULES: ModularModuleDef[] = [
     // /meet/[id], /meet/room/[id], ...) dikenali guard lewat prefix '/meet'
     // (pageModuleForPath) — tidak perlu didaftar satu per satu.
     pages: [{ href: '/meet', label: 'WOORK MEET', perms: ['MEET_VIEW'], legacyKey: 'meet' }],
+  },
+  {
+    key: 'perusahaan',
+    group: 'utama',
+    label: 'Manajemen Perusahaan',
+    billable: false,
+    defaultMonthlyPerUser: 0,
+    // Manajemen Perusahaan (2026-11-21): identitas akun master, profil
+    // perusahaan + pajak, dan dokumen legalitas. Memperluas model
+    // Organization (bukan model Company duplikat). Selalu aktif
+    // (non-billable, pola Tiket/Kantor). Sub-route /perusahaan/*
+    // dikenali guard lewat prefix '/perusahaan' (pageModuleForPath).
+    pages: [{ href: '/perusahaan', label: 'Manajemen Perusahaan', perms: ['PERUSAHAAN_VIEW'], legacyKey: 'perusahaan' }],
+  },
+  {
+    key: 'kalender',
+    group: 'utama',
+    label: 'Work Calendar',
+    billable: false,
+    defaultMonthlyPerUser: 0,
+    // Work Calendar (2026-11-21): kalender kerja terpusat — event manual
+    // + sinkron dari Meeting, tugas TAL, cuti TAL, Invoice, Pengumuman,
+    // dan hari libur TAL. Selalu aktif (non-billable, pola Tiket/Kantor).
+    // Sub-route /kalender/* dikenali guard lewat prefix '/kalender'.
+    pages: [{ href: '/kalender', label: 'Work Calendar', perms: ['CALENDAR_VIEW'], legacyKey: 'kalender' }],
+  },
+  {
+    key: 'daily',
+    group: 'utama',
+    label: 'Daily Workspace',
+    billable: false,
+    defaultMonthlyPerUser: 0,
+    // Daily Workspace (2026-11-21): pusat aktivitas & produktivitas
+    // harian — agregasi dari Work Calendar, TalTask, Meeting, dan
+    // Notification (bukan penyimpanan tugas/kalender baru). Selalu aktif
+    // (non-billable, pola Tiket/Kantor). Sub-route /daily/* dikenali
+    // guard lewat prefix '/daily'.
+    pages: [{ href: '/daily', label: 'Daily Workspace', perms: ['DAILY_VIEW'], legacyKey: 'daily' }],
+  },
+  {
+    key: 'absensi',
+    group: 'utama',
+    label: 'Attendance',
+    billable: false,
+    defaultMonthlyPerUser: 0,
+    // Attendance (2026-11-21): absensi terpadu website + WhatsApp
+    // AI-Agent — SATU backend/engine/DB. Cuti/izin pakai TalCuti
+    // (tidak diduplikasi). Selalu aktif (non-billable, pola
+    // Tiket/Kantor). Sub-route /absensi/* dikenali guard lewat
+    // prefix '/absensi'.
+    pages: [{ href: '/absensi', label: 'Attendance', perms: ['ATTENDANCE_VIEW'], legacyKey: 'absensi' }],
   },
   {
     key: 'chat',
@@ -252,6 +306,7 @@ export const MODULAR_MODULES: ModularModuleDef[] = [
       { href: '/admin-kantor/users', label: 'Pengguna', perms: ['USERS_VIEW'] },
       { href: '/admin-kantor/roles', label: 'Role & Permission', perms: ['ROLES_VIEW'] },
       { href: '/admin-kantor/office', label: 'Pengaturan Kantor', perms: ['SETTINGS_MANAGE'] },
+      { href: '/admin-kantor/catalog', label: 'Katalog Agent', perms: ['DEPARTMENTS_VIEW'] },
       { href: '/settings', label: 'Pengaturan' },
       { href: '/settings/profile', label: 'Profil' },
       { href: '/settings/team', label: 'Tim' },
@@ -271,8 +326,10 @@ export const MODULAR_MODULES: ModularModuleDef[] = [
       // Manajemen Kantor
       { href: '/admin/dashboard', label: 'Dashboard Pusat', section: 'Manajemen Kantor', platformPerms: ['PLATFORM_TENANTS_VIEW', 'PLATFORM_MASTER_VIEW', 'PLATFORM_AUDIT_VIEW'] },
       { href: '/admin/offices', label: 'Kantor', section: 'Manajemen Kantor', platformPerms: ['PLATFORM_TENANTS_VIEW', 'PLATFORM_TENANTS_MANAGE'] },
+      { href: '/admin/tenants', label: 'Tenant & Database', section: 'Manajemen Kantor', platformPerms: ['PLATFORM_TENANTS_VIEW', 'PLATFORM_TENANTS_MANAGE'] },
+      { href: '/admin/verifikasi-pendaftaran', label: 'Verifikasi Pendaftaran', section: 'Manajemen Kantor', platformPerms: ['PLATFORM_REGISTRATIONS_VIEW', 'PLATFORM_REGISTRATIONS_MANAGE'] },
       { href: '/admin/offices/new', label: 'Tambah Kantor', section: 'Manajemen Kantor', platformPerms: ['PLATFORM_TENANTS_MANAGE'] },
-      { href: '/admin/pengumuman', label: 'Pengumuman Platform', section: 'Manajemen Kantor', platformPerms: ['PLATFORM_TENANTS_MANAGE'] },
+      { href: '/admin/pengumuman', label: 'Pengumuman Platform', section: 'Manajemen Kantor', platformPerms: ['PLATFORM_ANNOUNCEMENTS_VIEW', 'PLATFORM_ANNOUNCEMENTS_MANAGE'] },
       { href: '/admin/tiket', label: 'Tiket', section: 'Manajemen Kantor', superOnly: true },
       // Manajemen Pengguna
       { href: '/admin/pengguna', label: 'Pengguna', section: 'Manajemen Pengguna', superOnly: true },
@@ -281,6 +338,9 @@ export const MODULAR_MODULES: ModularModuleDef[] = [
       // Keuangan & Paket
       { href: '/admin/invoices', label: 'Invoice', section: 'Keuangan & Paket', platformPerms: ['PLATFORM_TENANTS_VIEW', 'PLATFORM_TENANTS_MANAGE'] },
       { href: '/admin/modul', label: 'Harga Modul', section: 'Keuangan & Paket', platformPerms: ['PLATFORM_PACKAGES_MANAGE'] },
+      { href: '/admin/paket-harga', label: 'Paket & Harga', section: 'Keuangan & Paket', platformPerms: ['PLATFORM_PACKAGES_MANAGE'] },
+      { href: '/admin/langganan', label: 'Pemantauan Langganan', section: 'Keuangan & Paket', platformPerms: ['PLATFORM_TENANTS_VIEW', 'PLATFORM_TENANTS_MANAGE'] },
+      { href: '/admin/billing', label: 'Billing & Rekonsiliasi', section: 'Keuangan & Paket', platformPerms: ['PLATFORM_BILLING_VIEW', 'PLATFORM_BILLING_MANAGE'] },
       { href: '/admin/saldo-master', label: 'Saldo Master', section: 'Keuangan & Paket', platformPerms: ['PLATFORM_MASTER_VIEW', 'PLATFORM_MASTER_MANAGE'] },
       // Sistem & Pengawasan
       { href: '/admin/audit', label: 'Audit Global', section: 'Sistem & Pengawasan', platformPerms: ['PLATFORM_AUDIT_VIEW'] },
@@ -323,6 +383,10 @@ export const LEGACY_TO_MODULAR: Record<string, ModularKey> = {
   kantor: 'kantor',
   earsip: 'earsip',
   meet: 'meet',
+  perusahaan: 'perusahaan',
+  kalender: 'kalender',
+  daily: 'daily',
+  absensi: 'absensi',
 };
 
 /** Pemetaan modul baru -> kunci modul lama di dalamnya. */
@@ -343,6 +407,10 @@ export const MODULAR_TO_LEGACY: Record<ModularKey, string[]> = {
   esign: ['esign'],
   earsip: ['earsip'],
   meet: ['meet'],
+  perusahaan: ['perusahaan'],
+  kalender: ['kalender'],
+  daily: ['daily'],
+  absensi: ['absensi'],
 };
 
 /** Modul katalog permission (PERMISSION_CATALOG.module) -> modul baru. */
@@ -364,6 +432,10 @@ const CATALOG_MODULE_TO_MODULAR: Record<string, ModularKey> = {
   Tiket: 'tiket',
   'E-Arsip': 'earsip',
   Meet: 'meet',
+  Perusahaan: 'perusahaan',
+  Kalender: 'kalender',
+  'Daily Workspace': 'daily',
+  Attendance: 'absensi',
 };
 
 /**
@@ -382,6 +454,43 @@ export const PERMISSION_MODULE_LEVEL = new Map<
     },
   ])
 );
+
+/**
+ * Modul sensitif — Bab 8: default TANPA akses (NONE) bila pengguna tidak
+ * punya baris UserModuleAccess eksplisit. Admin perusahaan harus
+ * mengaktifkan secara eksplisit (baris WRITE) lewat Manajemen Pengguna.
+ * - 'koperasi': data sensitif NIK/KTP anggota.
+ * - 'setting': Setting perusahaan (logo/warna, pengaturan kantor).
+ * - 'pusat': modul Master-only (tidak terlihat tenant — masuk set agar
+ *   tidak ada jalan pintas bila suatu saat terekspos).
+ * Modul lain tetap default WRITE (ikut aturan kantor).
+ * Catatan G3 (Fase 7): SEMUA 21 modul PERMISSION_CATALOG sudah terpetakan
+ * di CATALOG_MODULE_TO_MODULAR — tidak ada permission yang jatuh ke
+ * fallback 'setting', jadi set ini tidak mengunci permission lain.
+ * Backfill akses existing: scripts/backfill-sensitive-module-access.ts.
+ */
+export const SENSITIVE_MODULES_DEFAULT_NONE: ReadonlySet<ModularKey> = new Set([
+  'koperasi',
+  'setting',
+  'pusat',
+] as const);
+
+/**
+ * Lima modul berbayar Bab 9 (Fase 1): TAL, Koperasi Keanggotaan, Simulasi
+ * Emas, Ekosistem Islami, AI Workspace (kunci 'kantor' — pemetaan
+ * provisional Fase 1). Didefinisikan di sini (bukan lib/subscription)
+ * supaya lib/tenant/package-sync.ts bisa memakainya tanpa menarik
+ * rantai impor lib/db. Penegakan paket Fase 7 (Bab 8): modul ini AKTIF
+ * hanya bila baris SubscriptionModule tenant-nya ACTIVE; baris ditulis
+ * oleh sinkronisasi paket (lib/tenant/package-sync.ts).
+ */
+export const PAID_MODULE_KEYS: readonly ModularKey[] = [
+  'tal',
+  'koperasi',
+  'emas',
+  'islami',
+  'kantor',
+] as const;
 
 /** Kunci modul lama untuk satu permission (bila ada) — dipakai cek baris legacy. */
 const CATALOG_MODULE_TO_LEGACY: Record<string, string> = {

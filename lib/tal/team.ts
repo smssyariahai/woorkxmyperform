@@ -102,17 +102,30 @@ export interface TalOrgUser {
 }
 
 export async function talLoadOrgUsers(organizationId: string): Promise<TalOrgUser[]> {
-  const memberships = await prisma.membership.findMany({
+  // Membership TIDAK punya relasi `user` di tenant client (dan `orderBy`
+  // relasi juga tidak bisa) — user diambil terpisah, digabung, lalu
+  // diurutkan per nama di JS (bentuk hasil sama).
+  const memberRows = await prisma.membership.findMany({
     where: { organizationId },
     include: {
-      user: { select: { id: true, name: true, email: true, status: true } },
       employment: {
         select: { position: true, jobLevel: true, branch: true, managerId: true },
       },
       department: { select: { name: true } },
     },
-    orderBy: { user: { name: 'asc' } },
   });
+  const talUserIds = [...new Set(memberRows.map((m) => m.userId))];
+  const talUsers = talUserIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: talUserIds } },
+        select: { id: true, name: true, email: true, status: true },
+      })
+    : [];
+  const talUserById = new Map(talUsers.map((u) => [u.id, u]));
+  const memberships = memberRows
+    .map((m) => ({ ...m, user: talUserById.get(m.userId) ?? null }))
+    .filter((m): m is typeof m & { user: { id: string; name: string; email: string; status: string } } => !!m.user)
+    .sort((a, b) => a.user.name.localeCompare(b.user.name));
   return memberships.map((m) => ({
     id: m.user.id,
     email: (m.user.email || '').toLowerCase(),
