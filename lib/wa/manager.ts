@@ -15,6 +15,8 @@ import makeWASocket, {
 import QRCode from 'qrcode';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { prisma } from '@/lib/db';
+import { masterPrisma } from '@/lib/tenant/master';
+import { getTenantClientForCode, runWithTenant } from '@/lib/tenant/resolver';
 import { normalizePhone, jidToPhone, phoneToJid } from './phone';
 import { refreshCustomerPhoto, refreshOrgPhotos } from './profile-photo';
 
@@ -62,42 +64,76 @@ function getSession(orgId: string): Session {
   return s;
 }
 
+/**
+ * Jalankan `fn` dalam konteks DB organisasi ini (P1-5 Phase 4).
+ *
+ * Handler event Baileys berjalan di luar request HTTP — tidak ada header
+ * `x-tenant-code` dari middleware dan tidak ada ALS — jadi proxy `prisma`
+ * jatuh ke legacy. Untuk org tenant (organizationId = tenant.id di
+ * master), semua baca/tulis (pelanggan, percakapan, pesan, campaign,
+ * channel) harus ke DB tenant itu, kalau tidak: pesan tenant masuk ke
+ * legacy dengan organizationId tenant (polusi legacy) dan inbox tenant
+ * tidak pernah melihatnya.
+ *
+ * Urutan wajib (proxy fail-closed, lihat lib/db.ts): resolve client dulu
+ * via `getTenantClientForCode`, BARU `runWithTenant`. Org legacy (tidak
+ * ada di master Tenant) jalan langsung seperti semula. Bila tenant
+ * ACTIVE tapi client tidak bisa di-resolve (registry/secret rusak),
+ * error dilempar ke pemanggil (fail-closed) — JANGAN fallback diam-diam
+ * ke legacy.
+ */
+async function withOrgDb<T>(orgId: string, fn: () => Promise<T>): Promise<T> {
+  const tenant = await masterPrisma.tenant
+    .findUnique({ where: { id: orgId }, select: { tenantCode: true, tenantStatus: true } })
+    .catch(() => null);
+  if (tenant && tenant.tenantStatus === 'ACTIVE') {
+    await getTenantClientForCode(tenant.tenantCode);
+    return runWithTenant(tenant.tenantCode, fn);
+  }
+  return fn();
+}
+
 async function markChannel(orgId: string, connected: boolean, phone: string | null) {
+  // Channel + ChannelAccount tinggal di DB org itu (tenant/legacy) — jalan
+  // dalam konteks DB org (P1-5). Gagal resolve tenant (mis. master tidak
+  // terjangkau) hanya dicatat, tidak dilempar ke connection.update.
   try {
-    const channel = await prisma.channel.findFirst({
-      where: { organizationId: orgId, type: 'WHATSAPP' },
-    });
-    if (!channel) return;
-    await prisma.channel.update({
-      where: { id: channel.id },
-      data: { status: connected ? 'CONNECTED' : 'DISCONNECTED' },
-    });
-    const account = await prisma.channelAccount.findFirst({
-      where: { channelId: channel.id, organizationId: orgId },
-      orderBy: { connectedAt: 'desc' },
-    });
-    if (connected) {
-      const displayName = phone ? `WhatsApp ${phone}` : 'WhatsApp';
-      if (account) {
-        await prisma.channelAccount.update({
-          where: { id: account.id },
-          data: {
-            status: 'CONNECTED', displayName,
-            externalId: phone, connectedAt: new Date(), lastTestAt: new Date(), lastTestOk: true,
-          },
-        });
-      } else {
-        await prisma.channelAccount.create({
-          data: {
-            organizationId: orgId, channelId: channel.id,
-            displayName, externalId: phone,
-            status: 'CONNECTED', connectedAt: new Date(), lastTestAt: new Date(), lastTestOk: true,
-          },
-        });
+    await withOrgDb(orgId, async () => {
+      const channel = await prisma.channel.findFirst({
+        where: { organizationId: orgId, type: 'WHATSAPP' },
+      });
+      if (!channel) return;
+      await prisma.channel.update({
+        where: { id: channel.id },
+        data: { status: connected ? 'CONNECTED' : 'DISCONNECTED' },
+      });
+      const account = await prisma.channelAccount.findFirst({
+        where: { channelId: channel.id, organizationId: orgId },
+        orderBy: { connectedAt: 'desc' },
+      });
+      if (connected) {
+        const displayName = phone ? `WhatsApp ${phone}` : 'WhatsApp';
+        if (account) {
+          await prisma.channelAccount.update({
+            where: { id: account.id },
+            data: {
+              status: 'CONNECTED', displayName,
+              externalId: phone, connectedAt: new Date(), lastTestAt: new Date(), lastTestOk: true,
+            },
+          });
+        } else {
+          await prisma.channelAccount.create({
+            data: {
+              organizationId: orgId, channelId: channel.id,
+              displayName, externalId: phone,
+              status: 'CONNECTED', connectedAt: new Date(), lastTestAt: new Date(), lastTestOk: true,
+            },
+          });
+        }
+      } else if (account) {
+        await prisma.channelAccount.update({ where: { id: account.id }, data: { status: 'DISCONNECTED' } });
       }
-    } else if (account) {
-      await prisma.channelAccount.update({ where: { id: account.id }, data: { status: 'DISCONNECTED' } });
-    }
+    });
   } catch (e) {
     console.error('[wa] markChannel gagal:', (e as Error).message);
   }
@@ -108,6 +144,9 @@ async function handleIncoming(orgId: string, sock: any) {
   // Catatan: Baileys mengirim status sebagai ANGKA (WAMessageStatus): 4=READ, 5=PLAYED
   const READ_STATUSES = [4, 5, 'READ', 'PLAYED'];
   sock.ev.on('messages.update', async (updates: any[]) => {
+    // Tanda terima broadcast: jalan dalam konteks DB org (P1-5) agar
+    // resipien tenant dibaca dari DB tenant, bukan legacy.
+    await withOrgDb(orgId, async () => {
     for (const u of updates || []) {
       try {
         const msgId = u?.key?.id;
@@ -116,7 +155,10 @@ async function handleIncoming(orgId: string, sock: any) {
         if (!READ_STATUSES.includes(status)) continue;
         const { prisma } = await import('@/lib/db');
         const rec = await prisma.campaignRecipient.findFirst({
-          where: { waMessageId: msgId, readAt: null },
+          // P2-1: CampaignRecipient TIDAK punya kolom organizationId —
+          // batasi lewat relasi campaign org ini, supaya satu waMessageId
+          // yang sama di dua org tidak menandai resipien org yang salah.
+          where: { waMessageId: msgId, readAt: null, campaign: { organizationId: orgId } },
           select: { id: true, campaignId: true },
         });
         if (!rec) continue;
@@ -131,10 +173,16 @@ async function handleIncoming(orgId: string, sock: any) {
         });
       } catch {}
     }
+    }).catch((e) => console.error('[wa] messages.update gagal (konteks org):', (e as Error).message));
   });
 
   sock.ev.on('messages.upsert', async ({ messages, type }: any) => {
     if (type !== 'notify') return;
+    // Pesan masuk: seluruh pemrosesan (pelanggan, percakapan, pesan,
+    // foto profil, BotFlow, AI, E-Sign WA) jalan dalam konteks DB org
+    // (P1-5) — termasuk pemanggilan await di dalamnya (runBotFlows,
+    // maybeAiReply, refreshCustomerPhoto fire-and-forget).
+    await withOrgDb(orgId, async () => {
     for (const m of messages) {
       try {
         if (!m.message || m.key.fromMe) continue;
@@ -295,6 +343,7 @@ async function handleIncoming(orgId: string, sock: any) {
         console.error('[wa] incoming gagal:', (e as Error).message);
       }
     }
+    }).catch((e) => console.error('[wa] incoming gagal (konteks org):', (e as Error).message));
   });
 }
 

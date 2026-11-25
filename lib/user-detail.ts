@@ -2,10 +2,10 @@
 // Tambah/Edit). Dipakai API GET/PATCH/POST. Validasi di sini agar form
 // tambah dan edit memakai aturan yang sama.
 
-import { prisma } from '@/lib/db';
+import { prisma, legacyPrisma } from '@/lib/db';
 import { apiErr } from '@/lib/utils';
 import { parseOrgModules } from '@/lib/modules';
-import { LEGACY_TO_MODULAR, MODULAR_MODULES, type ModularKey, type ModuleAccessLevel } from '@/lib/modular';
+import { LEGACY_TO_MODULAR, MODULAR_MODULES, SENSITIVE_MODULES_DEFAULT_NONE, type ModularKey, type ModuleAccessLevel } from '@/lib/modular';
 import { activeModulesOf, getSubscription, moduleLevelFromLegacy } from '@/lib/subscription';
 import {
   BLOOD_TYPES,
@@ -328,44 +328,51 @@ export async function validateUserDetailInput(
 }
 
 /**
- * Operasi tulis untuk data lengkap (dijalankan dalam satu $transaction
- * bersama update user/membership oleh route pemanggil).
+ * Operasi tulis untuk data lengkap (dijalankan dalam transaksi bersama
+ * update user/membership oleh route pemanggil) — DIPISAH dua kelompok:
+ * - `tenant`: ketenagakerjaan, nilai custom, akses modul (data tenant,
+ *   lewat proxy `prisma`).
+ * - `profile`: profil, keluarga, pendidikan, pengalaman kerja — model
+ *   platform global yang hanya ada di woork_saas (lewat `legacyPrisma`).
+ * Satu $transaction lintas dua database tidak mungkin; route pemanggil
+ * menjalankan keduanya via runUserDetailOps (dua transaksi terpisah).
  * Semantik daftar (keluarga/pendidikan/pengalaman): payload adalah daftar
  * lengkap — baris yang tidak ada di payload dihapus.
  */
 export function buildUserDetailOps(
   d: NormalizedDetail,
   ids: { userId: string; membershipId: string }
-): any[] {
-  const ops: any[] = [];
+): { tenant: any[]; profile: any[] } {
+  const tenantOps: any[] = [];
+  const profileOps: any[] = [];
   const { userId, membershipId } = ids;
 
-  // Profil (upsert 1:1).
+  // Profil (upsert 1:1) — model global.
   if (d.profile) {
-    ops.push(
-      prisma.userProfile.upsert({
+    profileOps.push(
+      legacyPrisma.userProfile.upsert({
         where: { userId },
         create: { userId, ...d.profile },
         update: { ...d.profile },
       })
     );
   } else {
-    ops.push(prisma.userProfile.deleteMany({ where: { userId } }));
+    profileOps.push(legacyPrisma.userProfile.deleteMany({ where: { userId } }));
   }
 
-  // Keluarga — ganti penuh.
-  ops.push(prisma.userFamilyContact.deleteMany({ where: { userId } }));
+  // Keluarga — ganti penuh (model global).
+  profileOps.push(legacyPrisma.userFamilyContact.deleteMany({ where: { userId } }));
   d.family.forEach((f, i) => {
-    ops.push(
-      prisma.userFamilyContact.create({
+    profileOps.push(
+      legacyPrisma.userFamilyContact.create({
         data: { userId, name: f.name, relationship: f.relationship, phone: f.phone, address: f.address, occupation: f.occupation, sortOrder: i },
       })
     );
   });
 
-  // Ketenagakerjaan (upsert 1:1 per membership).
+  // Ketenagakerjaan (upsert 1:1 per membership) — data tenant.
   if (d.employment) {
-    ops.push(
+    tenantOps.push(
       prisma.userEmployment.upsert({
         where: { membershipId },
         create: { membershipId, ...d.employment },
@@ -373,14 +380,14 @@ export function buildUserDetailOps(
       })
     );
   } else {
-    ops.push(prisma.userEmployment.deleteMany({ where: { membershipId } }));
+    tenantOps.push(prisma.userEmployment.deleteMany({ where: { membershipId } }));
   }
 
-  // Pendidikan — ganti penuh.
-  ops.push(prisma.userEducation.deleteMany({ where: { userId } }));
+  // Pendidikan — ganti penuh (model global).
+  profileOps.push(legacyPrisma.userEducation.deleteMany({ where: { userId } }));
   d.educations.forEach((x, i) => {
-    ops.push(
-      prisma.userEducation.create({
+    profileOps.push(
+      legacyPrisma.userEducation.create({
         data: {
           userId,
           kind: x.kind,
@@ -402,44 +409,69 @@ export function buildUserDetailOps(
     );
   });
 
-  // Pengalaman kerja — ganti penuh.
-  ops.push(prisma.userWorkExperience.deleteMany({ where: { userId } }));
+  // Pengalaman kerja — ganti penuh (model global).
+  profileOps.push(legacyPrisma.userWorkExperience.deleteMany({ where: { userId } }));
   d.experiences.forEach((x, i) => {
-    ops.push(
-      prisma.userWorkExperience.create({
+    profileOps.push(
+      legacyPrisma.userWorkExperience.create({
         data: { userId, companyName: x.companyName, position: x.position, startYear: x.startYear, endYear: x.endYear, sortOrder: i },
       })
     );
   });
 
-  // Nilai custom — ganti penuh.
-  ops.push(prisma.userCustomValue.deleteMany({ where: { membershipId } }));
+  // Nilai custom — ganti penuh (data tenant).
+  tenantOps.push(prisma.userCustomValue.deleteMany({ where: { membershipId } }));
   d.customValues.forEach((v) => {
-    ops.push(prisma.userCustomValue.create({ data: { membershipId, fieldDefId: v.fieldDefId, value: v.value } }));
+    tenantOps.push(prisma.userCustomValue.create({ data: { membershipId, fieldDefId: v.fieldDefId, value: v.value } }));
   });
 
   // Hak akses modul — hanya simpan baris yang berbeda dari default kantor:
   // READ -> baris allowed=true, access='READ'; NONE -> baris allowed=false,
-  // access='NONE'; WRITE -> tanpa baris (ikut aturan kantor). Menyimpan form
-  // mengganti baris kunci lama pengguna ini ke model modul baru.
-  ops.push(prisma.userModuleAccess.deleteMany({ where: { membershipId } }));
+  // access='NONE'; WRITE -> tanpa baris (ikut aturan kantor), KECUALI modul
+  // sensitif (Bab 8 Fase 7): default-nya NONE, jadi WRITE pun HARUS
+  // disimpan sebagai baris eksplisit (allowed=true, access='WRITE') —
+  // kalau tidak, pengaktifan eksplisit oleh admin akan hilang.
+  // Menyimpan form mengganti baris kunci lama pengguna ini ke model modul baru.
+  tenantOps.push(prisma.userModuleAccess.deleteMany({ where: { membershipId } }));
   d.moduleAccess.forEach((m) => {
     if (m.access === 'READ') {
-      ops.push(
+      tenantOps.push(
         prisma.userModuleAccess.create({
           data: { membershipId, moduleKey: m.moduleKey, allowed: true, access: 'READ' },
         })
       );
     } else if (m.access === 'NONE') {
-      ops.push(
+      tenantOps.push(
         prisma.userModuleAccess.create({
           data: { membershipId, moduleKey: m.moduleKey, allowed: false, access: 'NONE' },
+        })
+      );
+    } else if (
+      m.access === 'WRITE' &&
+      SENSITIVE_MODULES_DEFAULT_NONE.has(m.moduleKey as ModularKey)
+    ) {
+      tenantOps.push(
+        prisma.userModuleAccess.create({
+          data: { membershipId, moduleKey: m.moduleKey, allowed: true, access: 'WRITE' },
         })
       );
     }
   });
 
-  return ops;
+  return { tenant: tenantOps, profile: profileOps };
+}
+
+/**
+ * Jalankan ops dari buildUserDetailOps: transaksi tenant dulu, lalu
+ * transaksi profil global. Dipakai route tambah/edit pengguna.
+ * (Validasi sudah lolos di validateUserDetailInput sebelum pemanggilan;
+ * kegagalan di transaksi kedua tidak membatalkan yang pertama — harga
+ * yang harus dibayar karena satu transaksi lintas dua database tidak
+ * mungkin. Untuk org legacy pun perilakunya sama.)
+ */
+export async function runUserDetailOps(ops: { tenant: any[]; profile: any[] }): Promise<void> {
+  if (ops.tenant.length > 0) await prisma.$transaction(ops.tenant);
+  if (ops.profile.length > 0) await legacyPrisma.$transaction(ops.profile);
 }
 
 /** Referensi untuk form (role, divisi, anggota kantor, field custom, modul). */
@@ -449,8 +481,8 @@ export async function getUserFormRefs(organizationId: string, excludeUserId?: st
     prisma.department.findMany({ where: { organizationId }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
     prisma.membership.findMany({
       where: { organizationId, status: 'ACTIVE', ...(excludeUserId ? { userId: { not: excludeUserId } } : {}) },
-      include: { user: { select: { id: true, name: true, email: true } } },
-      orderBy: { user: { name: 'asc' } },
+      select: { userId: true, jobTitle: true },
+      orderBy: { joinedAt: 'asc' },
       take: 500,
     }),
     prisma.userCustomFieldDef.findMany({
@@ -462,6 +494,24 @@ export async function getUserFormRefs(organizationId: string, excludeUserId?: st
     getSubscription(organizationId),
   ]);
   const orgModules = parseOrgModules(org?.modules); // [] = semua aktif (jalur lama)
+  // Membership TIDAK punya relasi `user` di tenant client (dan `orderBy`
+  // relasi juga tidak bisa) — user diambil terpisah, digabung, lalu
+  // diurutkan per nama di JS (bentuk hasil sama).
+  const memberUserIds = [...new Set(members.map((m) => m.userId))];
+  const memberUsers = memberUserIds.length
+    ? await prisma.user.findMany({
+        where: { id: { in: memberUserIds } },
+        select: { id: true, name: true, email: true },
+      })
+    : [];
+  const memberUserById = new Map(memberUsers.map((u) => [u.id, u]));
+  const membersList = members
+    .map((m) => {
+      const u = memberUserById.get(m.userId);
+      return u ? { id: u.id, name: u.name, email: u.email, jobTitle: m.jobTitle } : null;
+    })
+    .filter((m): m is { id: string; name: string; email: string; jobTitle: string | null } => !!m)
+    .sort((a, b) => a.name.localeCompare(b.name));
   // Modul yang bisa diatur per pengguna: semua modul aktif kantor — modul
   // non-billable (Dashboard, Setting, Islami, Emas, Pengumuman, TAL) selalu
   // aktif, modul berbayar mengikuti langganan (tanpa langganan = semua aktif).
@@ -472,7 +522,7 @@ export async function getUserFormRefs(organizationId: string, excludeUserId?: st
   return {
     roles,
     departments,
-    members: members.map((m) => ({ id: m.user.id, name: m.user.name, email: m.user.email, jobTitle: m.jobTitle })),
+    members: membersList,
     customFields,
     orgModules,
     subscribedModules,
@@ -481,10 +531,11 @@ export async function getUserFormRefs(organizationId: string, excludeUserId?: st
 
 /** Detail lengkap satu pengguna (untuk halaman edit). */
 export async function getUserDetail(membershipId: string, organizationId: string) {
-  const membership = await prisma.membership.findFirst({
+  // Membership TIDAK punya relasi `user` di tenant client — user diambil
+  // terpisah lalu digabung (bentuk hasil sama).
+  const membershipRow = await prisma.membership.findFirst({
     where: { id: membershipId, organizationId },
     include: {
-      user: { select: { id: true, name: true, email: true, username: true, phone: true, status: true, isSuperAdmin: true, createdAt: true } },
       role: { select: { id: true, name: true } },
       department: { select: { id: true, name: true } },
       employment: true,
@@ -492,12 +543,19 @@ export async function getUserDetail(membershipId: string, organizationId: string
       moduleAccess: { select: { moduleKey: true, allowed: true, access: true } },
     },
   });
-  if (!membership) return null;
+  if (!membershipRow) return null;
+  const detailUser = await prisma.user.findUnique({
+    where: { id: membershipRow.userId },
+    select: { id: true, name: true, email: true, username: true, phone: true, status: true, isSuperAdmin: true, createdAt: true },
+  });
+  if (!detailUser) return null;
+  const membership = { ...membershipRow, user: detailUser };
   const [profile, family, educations, experiences] = await Promise.all([
-    prisma.userProfile.findUnique({ where: { userId: membership.userId } }),
-    prisma.userFamilyContact.findMany({ where: { userId: membership.userId }, orderBy: { sortOrder: 'asc' } }),
-    prisma.userEducation.findMany({ where: { userId: membership.userId }, orderBy: { sortOrder: 'asc' } }),
-    prisma.userWorkExperience.findMany({ where: { userId: membership.userId }, orderBy: { sortOrder: 'asc' } }),
+    // Keempat model ini platform global (hanya ada di woork_saas).
+    legacyPrisma.userProfile.findUnique({ where: { userId: membership.userId } }),
+    legacyPrisma.userFamilyContact.findMany({ where: { userId: membership.userId }, orderBy: { sortOrder: 'asc' } }),
+    legacyPrisma.userEducation.findMany({ where: { userId: membership.userId }, orderBy: { sortOrder: 'asc' } }),
+    legacyPrisma.userWorkExperience.findMany({ where: { userId: membership.userId }, orderBy: { sortOrder: 'asc' } }),
   ]);
   const refs = await getUserFormRefs(organizationId, membership.userId);
   // Level per modul baru: baris kunci baru diutamakan; bila tidak ada,

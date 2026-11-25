@@ -1,0 +1,558 @@
+// Master database schema — WOORK platform (database-per-tenant architecture).
+// This schema owns PLATFORM-level data only: tenant registry, global users,
+// memberships, billing and provisioning state. It NEVER stores tenant
+// operational data (HRIS, attendance, invoices, tasks, etc.).
+// Tenant operational data lives in each tenant's own database (woork_t_*),
+// defined in prisma/tenant/schema.prisma.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../../node_modules/@prisma/master-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("MASTER_DATABASE_URL")
+}
+
+model Tenant {
+  id             String   @id @default(cuid())
+  tenantCode     String   @unique
+  companyName    String
+  companySlug    String   @unique
+  databaseName   String   @unique
+  databaseHost   String   @default("localhost")
+  databasePort   Int      @default(5432)
+  databaseStatus String   @default("PROVISIONING")
+  tenantStatus   String   @default("PENDING_PROVISIONING")
+  subscriptionId String?
+  // Phase 6: id Organization legacy (woork_saas) yang dimigrasikan ke
+  // tenant ini. Dipakai filter skip di pass legacy 4 cron + lookup
+  // rollback. NULL untuk tenant dari pendaftaran biasa (tanpa org legacy).
+  legacyOrganizationId String? @unique
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  registry     TenantDatabaseRegistry?
+  memberships  TenantMembership[]
+  subscription Subscription?
+  jobs         ProvisioningJob[]
+  auditLogs    PlatformAuditLog[]
+}
+
+model TenantDatabaseRegistry {
+  id                   String    @id @default(cuid())
+  tenantId             String    @unique
+  tenant               Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  databaseName         String    @unique
+  databaseHost         String
+  databasePort         Int
+  databaseUserReference String
+  // Password of the tenant database role, AES-256-GCM encrypted
+  // (see lib/tenant/crypto.ts). NEVER store plaintext here.
+  secretReference      String
+  databaseVersion      String    @default("PostgreSQL 16")
+  migrationVersion     String    @default("")
+  connectionStatus     String    @default("UNKNOWN")
+  provisionedAt        DateTime?
+  lastHealthCheck      DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+}
+
+model PlatformUser {
+  id           String   @id
+  email        String   @unique
+  name         String
+  passwordHash String?
+  status       String   @default("ACTIVE")
+  isSuperAdmin Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model TenantMembership {
+  id               String   @id @default(cuid())
+  // Reference to PlatformUser.id, stored as a plain string (no database FK:
+  // the user lives in the master DB while tenant data lives elsewhere).
+  userId           String
+  tenantId         String
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  roleReference    String
+  membershipStatus String   @default("ACTIVE")
+  joinedAt         DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([userId, tenantId])
+}
+
+model Subscription {
+  id           String    @id @default(cuid())
+  tenantId     String    @unique
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan         String    @default("FREE")
+  status       String    @default("ACTIVE")
+  trialEndsAt  DateTime?
+  billingCycle String    @default("MONTHLY")
+  userQuota    Int       @default(10)
+  // Fase 1 (Bab 9.1-9.4): rujukan paket katalog + salinan harga/batas saat
+  // berlangganan. String polos tanpa FK Prisma (pola Opsi A); tier yang
+  // dihentikan/dihapus (soft) tetap bisa dirujuk salinan langganan.
+  userTierId         String?
+  storageTierId      String?
+  moduleKeys         String[] @default([])
+  packageSnapshotJson String  @default("{}")
+  // Fase 4 (Bab 5.5/7.4/7.5): siklus hidup langganan. lifecycleStatus =
+  // TRIAL | AKTIF | MENUNGGAK | DITANGGUHKAN | NONAKTIF | DIHAPUS.
+  // `status` lama dibiarkan (hanya tampil); gating memakai lifecycleStatus.
+  lifecycleStatus          String    @default("AKTIF")
+  previousLifecycleStatus  String?
+  lifecycleReason          String?
+  lifecycleChangedAt       DateTime?
+  lifecycleChangedByUserId String?
+  currentPeriodEndsAt      DateTime?
+  retentionStartsAt        DateTime?
+  retentionEndsAt          DateTime?
+  deletedAt                DateTime?
+  deletionConfirmedByUserId String?
+  // Fase 5 (§7.7): akhir tenggang saat MENUNGGAK; dibersihkan saat keluar
+  // dari MENUNGGAK (applyPayment / transisi).
+  graceEndsAt              DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+// Fase 5 (§7.7): invoice perpanjangan langganan di master DB. Diterbitkan
+// scheduler di T-7, berlaku invoiceValidityHours (default 24 jam), TIDAK
+// diterbitkan ulang otomatis. Status: Belum Dibayar / Lunas / Kedaluwarsa /
+// Dibatalkan-Diganti (§5.5 — daftar terpisah dari status langganan).
+// Tanpa relasi Prisma (plain fields, pola Opsi A Fase 1/4).
+model SubscriptionInvoice {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  subscriptionId      String
+  number              String   @unique
+  periodStart         DateTime
+  periodEnd           DateTime
+  billingCycle        String
+  baseAmount          Int
+  ppnAmount           Int
+  uniqueCode          Int
+  status              String   @default("Belum Dibayar")
+  issuedAt            DateTime @default(now())
+  validUntil          DateTime
+  paidAt              DateTime?
+  paidAmount          Int?
+  replacedByInvoiceId String?
+  // Fase 6 (§9.5): tujuan + rincian + invoice manual nego + kredit.
+  purpose             String   @default("RENEWAL")
+  itemsJson           String?
+  isManual            Boolean  @default(false)
+  manualReason        String?
+  manualByUserId      String?
+  catalogBaseAmount   Int?
+  packageSnapshotJson String?
+  creditApplied       Int      @default(0)
+  paidBank            String?
+  paidMutationId      String?
+  // Pengiriman email invoice (§9.5): status pengiriman ke email tenant.
+  // SENT | NOT_CONFIGURED | SEND_FAILED | NO_RECIPIENT (null = belum dicoba).
+  emailStatus         String?
+  emailSentAt         DateTime?
+  emailTo             String?
+  emailError          String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([subscriptionId])
+  @@index([status])
+  @@index([validUntil])
+}
+
+// Fase 6 (§9.5): rekening penampung Master — satu rekening per bank.
+// Nomor rekening TIDAK ada di spec; Master yang mengisi di UI billing.
+// Seed 6 baris di migrasi dengan nomor rekening KOSONG.
+model BankReceivingAccount {
+  id                String   @id @default(cuid())
+  bankCode          String   @unique
+  bankName          String
+  accountNumber     String   @default("")
+  accountHolderName String   @default("")
+  isActive          Boolean  @default(true)
+  sortOrder         Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+// Fase 6 (§9.5): berkas rekening koran yang diunggah Master (cadangan b).
+model BankStatement {
+  id               String   @id @default(cuid())
+  bankCode         String
+  fileName         String
+  storedPath       String
+  rowCount         Int
+  matchedCount     Int      @default(0)
+  queuedCount      Int      @default(0)
+  skippedRows      Int      @default(0)
+  uploadedByUserId String
+  uploadMethod     String   @default("CSV_UPLOAD")
+  createdAt        DateTime @default(now())
+
+  @@index([bankCode])
+}
+
+// Fase 6 (§9.5): satu baris mutasi masuk dari CSV rekening koran.
+// Hanya mutasi MASUK yang disimpan (keluar dilewati parser).
+model BankMutation {
+  id             String   @id @default(cuid())
+  statementId    String?
+  bankCode       String
+  valueDate      DateTime
+  amount         Int
+  description    String?
+  reference      String?
+  status         String   @default("UNKNOWN")
+  matchedInvoiceId String?
+  tenantId       String?
+  resolutionNote String?
+  resolvedByUserId String?
+  resolvedAt     DateTime?
+  createdAt      DateTime @default(now())
+
+  @@index([bankCode, valueDate])
+  @@index([amount])
+  @@index([status])
+  @@index([tenantId])
+}
+
+// Fase 6 (§9.5): saldo kredit langganan per tenant (lebih bayar +
+// bayar ganda). Otomatis dipakai untuk tagihan berikutnya.
+model SubscriptionCredit {
+  id        String   @id @default(cuid())
+  tenantId  String   @unique
+  balance   Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+// Fase 6 (§9.5): catatan pelunasan manual (siapa, bukti, selisih, cara
+// selisih ditangani) — wajib audit per spec.
+model ManualSettlement {
+  id               String   @id @default(cuid())
+  invoiceId        String
+  tenantId         String
+  actorUserId      String
+  amountReceived   Int
+  invoiceTotal     Int
+  difference       Int
+  handling         String
+  followUpInvoiceId String?
+  proofMutationId  String?
+  proofNote        String?
+  reason           String
+  createdAt        DateTime @default(now())
+
+  @@index([invoiceId])
+  @@index([tenantId])
+}
+
+// Fase 6 (§9.5): laporan "saya sudah transfer" dari Client Administrator.
+model TenantPaymentReport {
+  id               String   @id @default(cuid())
+  tenantId         String
+  invoiceId        String?
+  bankCode         String
+  transferDate     DateTime
+  amount           Int
+  proofPath        String?
+  status           String   @default("PENDING")
+  resolvedByUserId String?
+  resolveNote      String?
+  createdAt        DateTime @default(now())
+
+  @@index([tenantId])
+  @@index([status])
+}
+
+// Fase 5 (§7.7): log tindakan otomatis (apa/kapan/kenapa, siapa SYSTEM vs
+// MASTER) — modul pemantauan wajib v1. Tanpa relasi Prisma.
+model SubscriptionAutoActionLog {
+  id             String   @id @default(cuid())
+  tenantId       String
+  subscriptionId String
+  action         String
+  detail         String?
+  reason         String
+  actorType      String   @default("SYSTEM")
+  actorUserId    String?
+  metadataJson   String?
+  createdAt      DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([subscriptionId])
+}
+
+// Fase 5 (§7.7): pengaturan otomasi master — SATU baris, id 'default'.
+// reminderDaysBeforeGraceEnd disimpan sebagai JSON array int (string).
+model SubscriptionAutomationSettings {
+  id                          String   @id @default("default")
+  graceDays                   Int      @default(14)
+  invoiceLeadDays             Int      @default(7)
+  reminderDaysBeforeGraceEnd  String   @default("[7,3,1]")
+  retentionReminderDaysBefore Int      @default(7)
+  automationEnabled           Boolean  @default(true)
+  updatedAt                   DateTime @updatedAt
+}
+
+model ProvisioningJob {
+  id           String    @id @default(cuid())
+  tenantId     String
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  status       String    @default("PENDING")
+  step         String    @default("")
+  attempts     Int       @default(0)
+  errorMessage String?
+  // Provisioning input as a JSON string (e.g. company name, admin user).
+  inputJson    String    @default("{}")
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+model PlatformAuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  action      String
+  tenantId    String?
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  // Extra context as a JSON string.
+  metadata    String   @default("{}")
+  createdAt   DateTime @default(now())
+}
+
+// Fase 4 (WOORK VIRTUAL OFFICE 3.0 §12–13): katalog global template AI-agent
+// dari repo msitarzewski/agency-agents (MIT, AgentLand Contributors 2025).
+// Template = data global di master DB; instance per tenant = model Agent di
+// skema tenant (templateSlug/templateVersion, String polos tanpa FK lintas DB).
+// Body Markdown template diperlakukan sebagai data TAK TEPERCAYA —
+// systemInstructions TIDAK PERNAH dieksekusi mentah (review dulu saat install).
+model AgentTemplate {
+  id                 String   @id @default(cuid())
+  // Agent ID = nama file repo tanpa .md (mis. engineering-backend-architect).
+  slug               String   @unique
+  name               String
+  // Divisi repo (direktori tingkat atas, sesuai divisions.json).
+  category           String
+  description        String   @default("")
+  // Bagian "Core Mission" dari body Markdown.
+  expertise          String   @default("")
+  // Frontmatter `vibe`.
+  personality        String   @default("")
+  // Body Markdown LENGKAP — template tak tepercaya, review sebelum dipakai.
+  systemInstructions String   @default("")
+  // JSON string: array bullet dari bagian "Deliverables".
+  deliverables       String   @default("[]")
+  // JSON string: array judul seksi "## " di body (struktur workflow template).
+  workflows          String   @default("[]")
+  // JSON string atau NULL: repo tidak punya field eksplisit; NULL = tidak tersedia.
+  requiredTools      String?
+  // Label department WOORK yang disarankan + lantai gedung (NULL = tanpa default).
+  suggestedDepartment String?
+  suggestedFloor     Int?
+  // Commit hash repo saat import (templateVersion).
+  templateVersion    String   @default("")
+  // Template yang hilang dari repo saat sync ditandai false (JANGAN dihapus —
+  // instance yang sudah terpasang harus tetap jalan).
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([category])
+  @@index([isActive])
+}
+
+// Fase 1 Alur Pendaftaran Tenant Baru (Bab 9.1-9.4): katalog paket & harga.
+// Harga = DATA di master DB (bisa diubah Master lewat UI Paket & Harga),
+// bukan konstanta di kode. Lifecycle tiap item: ACTIVE (bisa dipilih) |
+// DISCONTINUED (tidak bisa dipilih baru, pelanggan lama tetap jalan) |
+// DELETED (soft-delete terminal; riwayat langganan tidak ikut terhapus).
+model PackageUserTier {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  maxUsers      Int?
+  monthlyPrice  Int?
+  yearlyPrice   Int?
+  isCustomPrice Boolean  @default(false)
+  minStorageGb  Int
+  status        String   @default("ACTIVE")
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status])
+  @@index([sortOrder])
+}
+
+model PackageStorageTier {
+  id            String   @id @default(cuid())
+  name          String   @unique
+  capacityGb    Int?
+  monthlyPrice  Int?
+  yearlyPrice   Int?
+  isCustomPrice Boolean  @default(false)
+  status        String   @default("ACTIVE")
+  sortOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status])
+  @@index([sortOrder])
+}
+
+model PackageModulePrice {
+  id           String   @id @default(cuid())
+  moduleKey    String   @unique
+  name         String
+  monthlyPrice Int
+  yearlyPrice  Int
+  status       String   @default("ACTIVE")
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([status])
+}
+
+model BillingSettings {
+  id                   String   @id @default(cuid())
+  ppnRateBps           Int      @default(1100)
+  invoiceValidityHours Int      @default(24)
+  // Toggle sistem trial (2026-11-25): false = pendaftaran baru tidak bisa
+  // memilih trial (Jalur B dipaksa PAID; Jalur A langsung AKTIF).
+  trialEnabled         Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+// Fase 4 Alur Pendaftaran Tenant Baru (Bab 5.5/7.4/7.5): riwayat perubahan
+// status siklus hidup langganan (siapa, kapan, dari→ke, alasan). Tanpa
+// relasi Prisma — field polos + index, seperti tabel master lain.
+model SubscriptionStatusLog {
+  id              String   @id @default(cuid())
+  subscriptionId  String
+  tenantId        String
+  fromStatus      String
+  toStatus        String
+  reason          String
+  changedByUserId String?
+  createdAt       DateTime @default(now())
+
+  @@index([subscriptionId])
+  @@index([tenantId])
+}
+
+// Fase 2 Alur Pendaftaran Tenant Baru (Bab 7.1 Jalur B): catatan pendaftaran
+// + dokumen verifikasi. Tenant DB belum ada saat pendaftaran — semua data
+// di master. Provisioning terjadi di Fase 3 saat Master menyetujui.
+model TenantRegistration {
+  id                  String   @id @default(cuid())
+  companyName         String
+  legalEntityType     String
+  businessField       String
+  companyAddress      String
+  city                String
+  companyPhone        String
+  picName             String
+  picPosition         String
+  picEmail            String
+  picPhone            String
+  nib                 String?
+  userTierId          String?
+  storageTierId       String?
+  moduleKeys          String[] @default([])
+  billingCycle        String   @default("MONTHLY")
+  startChoice         String   @default("TRIAL")
+  packageSnapshotJson String   @default("{}")
+  selfAssessmentJson  String   @default("{}")
+  npwpStatus          String   @default("HAS_NPWP")
+  npwpStatement       String?
+  status              String   @default("PENDING_VERIFICATION")
+  statusToken         String   @unique
+  decidedByUserId     String?
+  decidedAt           DateTime?
+  decisionReason      String?
+  tenantId            String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  documents TenantRegistrationDocument[]
+
+  @@index([status])
+  @@index([picEmail])
+  @@index([nib])
+}
+
+model TenantRegistrationDocument {
+  id             String   @id @default(cuid())
+  registrationId String
+  registration   TenantRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  docType        String
+  docSubtype     String?
+  fileName       String
+  storedPath     String
+  mimeType       String
+  fileSize       Int
+  createdAt      DateTime @default(now())
+
+  @@index([registrationId])
+}
+
+// Fase 7 (§7.8): pengumuman Master → tenant. Isi pengumuman disimpan di
+// master; pengiriman ke tiap tenant dicatat di Delivery; baris Announcement
+// di DB tenant dibuat saat publish (fan-out, lihat
+// lib/tenant/platform-announcements.ts). Tanpa relasi Prisma.
+model PlatformAnnouncement {
+  id            String   @id @default(cuid())
+  title         String
+  summary       String   @default("")
+  content       String   @default("")
+  imageUrl      String?
+  category      String   @default("announcement")
+  priority      String   @default("normal") // normal | penting | mendesak
+  targetType    String // ALL | PACKAGE | TENANTS
+  targetJson    String   @default("{}") // PACKAGE: {userTierId?, storageTierId?, moduleKey?}; TENANTS: {tenantIds: string[]}
+  status        String   @default("DRAFT") // DRAFT | PUBLISHED
+  batchId       String   @unique
+  createdByUserId String
+  sentAt        DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status])
+}
+
+// Fase 7 (§7.8): status terkirim per tenant. Satu-satunya sumber kebenaran
+// untuk Master — JANGAN membaca baris Announcement di DB tenant (§7.8.3).
+model PlatformAnnouncementDelivery {
+  id                   String   @id @default(cuid())
+  announcementId       String
+  tenantId             String
+  tenantCode           String
+  tenantName           String // snapshot nama perusahaan saat kirim
+  status               String   @default("PENDING") // SENT | FAILED | SKIPPED
+  tenantAnnouncementId String?
+  recipientCount       Int      @default(0)
+  emailStatus          String   @default("not_requested") // not_requested | pending | sent | partial | failed | not_configured | skipped
+  emailSent            Int      @default(0)
+  emailFailed          Int      @default(0)
+  error                String?
+  sentAt               DateTime?
+  createdAt            DateTime @default(now())
+
+  @@unique([announcementId, tenantId])
+  @@index([announcementId])
+  @@index([tenantId])
+}
+

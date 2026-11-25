@@ -28,6 +28,38 @@ model Organization {
   logoPath           String?
   coverPath          String?
   subdomainChangedAt DateTime?
+  // --- Manajemen Perusahaan (Wave Perusahaan 2026-11-21) ---
+  businessType       String? // UMKM | BADAN_USAHA
+  entityForm         String? // PT | PT_PERORANGAN | PJP | CV | YAYASAN | KOPERASI | FIRMA | BMT | BPR | BPRS | BANK | BUP | KEMENTERIAN | LEMBAGA_PEMERINTAHAN | PERGURUAN_TINGGI
+  country            String? @default("Indonesia")
+  province           String?
+  city               String?
+  district           String?
+  village            String?
+  postalCode         String?
+  latitude           Float?
+  longitude          Float?
+  profileStatus      String  @default("BELUM_LENGKAP") // BELUM_LENGKAP | LENGKAP | MENUNGGU_VERIFIKASI | TERVERIFIKASI | PERLU_PERBAIKAN
+  profileCompletedAt DateTime?
+  companyTax         CompanyTax?
+  companyDocuments   CompanyDocument[]
+  calendarEvents     CalendarEvent[]
+  calendarSyncLogs   CalendarSyncLog[]
+  calendarUserPreferences CalendarUserPreference[]
+  dailyWorkNotes     DailyWorkNote[]
+  dailyWorkspacePreferences DailyWorkspacePreference[]
+  attendanceLocations AttendanceLocation[]
+  shifts           Shift[]
+  workSchedules    WorkSchedule[]
+  attendanceRecords AttendanceRecord[]
+  attendanceCorrections AttendanceCorrection[]
+  overtimeRequests OvertimeRequest[]
+  attendanceSetting AttendanceSetting?
+  prayerTimeSettings PrayerTimeSettings?
+  dailyPrayerSchedules DailyPrayerSchedule[]
+  prayerSessions PrayerSession[]
+  briefingSettings BriefingSettings?
+  briefingSessions BriefingSession[]
   activities         Activity[]
   agents             Agent[]
   agentTasks         AgentTask[]
@@ -99,6 +131,51 @@ model Organization {
   topUpRequests      TopUpRequest[]
 
   @@index([slug])
+}
+
+model CompanyTax {
+  id             String       @id @default(cuid())
+  organizationId String       @unique
+  npwp15         String? // NPWP 15 digit (format lama)
+  npwp16         String? // NPWP 16 digit (format baru)
+  taxDate        DateTime? // Tanggal kena pajak
+  taxpayerName   String? // Nama wajib pajak
+  isTaxpayer     Boolean      @default(false) // Wajib pajak NPWP (Yes/No)
+  taxIdNumber    String? // Nomor Identifikasi Wajib Pajak (16 digit; disinkronkan dengan npwp16 bila sama)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+model CompanyDocument {
+  id             String       @id @default(cuid())
+  organizationId String
+  docType        String // KTP | SELFIE_KTP | FOTO_LOKASI_USAHA | IZIN_USAHA | SK_KEMENKUMHAM | ANGGARAN_DASAR | AKTA_PENDIRIAN | COMPANY_PROFILE | NPWP_PERUSAHAAN | SIUP | NIB | FOTO_LOKASI_PERUSAHAAN | KTP_PENGURUS | KTP_PIC
+  label          String? // keterangan tambahan: nama pengurus / kategori foto (LUAR/DALAM)
+  originalName   String
+  storedName     String
+  filePath       String // path relatif: uploads/perusahaan/<organizationId>/<file>
+  mimeType       String
+  originalSize   Int
+  compressedSize Int
+  status         String       @default("DIAJUKAN") // DIAJUKAN | TERVERIFIKASI | DITOLAK | PERLU_PERBAIKAN
+  uploadedById   String
+  uploadedAt     DateTime     @default(now())
+  verifiedById   String?
+  verifiedAt     DateTime?
+  verifyNote     String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  uploadedBy     User         @relation("CompanyDocumentUploader", fields: [uploadedById], references: [id], onDelete: Cascade)
+  verifiedBy     User?        @relation("CompanyDocumentVerifier", fields: [verifiedById], references: [id])
+
+  @@index([organizationId])
+  @@index([organizationId, docType])
+  @@index([organizationId, status])
+  @@index([uploadedById])
 }
 
 model Agent {
@@ -246,6 +323,18 @@ model User {
   reviewedApprovals Approval[]            @relation("ApprovalReviewer")
   auditLogs         AuditLog[]
   createdCampaigns  Campaign[]            @relation("CampaignCreator")
+  createdCalendarEvents CalendarEvent[]   @relation("CalendarEventCreator")
+  calendarAttendances CalendarAttendee[]
+  calendarReminders CalendarReminder[]
+  calendarPreferences CalendarUserPreference[]
+  dailyWorkNotes DailyWorkNote[]
+  dailyWorkspacePreferences DailyWorkspacePreference[]
+  attendanceRecords AttendanceRecord[]
+  workSchedules WorkSchedule[]
+  requestedCorrections AttendanceCorrection[] @relation("CorrectionRequester")
+  reviewedCorrections AttendanceCorrection[] @relation("CorrectionReviewer")
+  overtimeRequests OvertimeRequest[]
+  approvedOvertimes OvertimeRequest[] @relation("OvertimeApprover")
   assignedConvos    Conversation[]        @relation("ConversationAssignee")
   sentMessages      ConversationMessage[] @relation("MessageSender")
   ownedCustomers    Customer[]            @relation("CustomerOwner")
@@ -258,7 +347,6 @@ model User {
   esignDocuments    EsignDocument[]       @relation("EsignDocumentAuthor")
   esignApprovals    EsignDocument[]       @relation("EsignDocumentApprover")
   esignSigners      EsignSigner[]         @relation("EsignSignerUser")
-  esignProfile      EsignProfile?
   esignTemplates    EsignTemplate[]       @relation("EsignTemplateAuthor")
   esignAuditLogs    EsignAuditLog[]       @relation("EsignAuditLogUser")
   esignNotifications EsignNotification[]  @relation("EsignNotificationRecipient")
@@ -298,6 +386,8 @@ model User {
   meetingParticipations MeetingParticipant[] @relation("MeetingParticipantUser")
   archiveCategoriesCreated ArchiveCategory[] @relation("ArchiveCategoryCreator")
   archiveDocuments  ArchiveDocument[] @relation("ArchiveDocumentUploader")
+  companyDocumentsUploaded CompanyDocument[] @relation("CompanyDocumentUploader")
+  companyDocumentsVerified CompanyDocument[] @relation("CompanyDocumentVerifier")
   resetTokens       PasswordResetToken[]
   createdTemplates  ReplyTemplate[]       @relation("TemplateAuthor")
   sessions          Session[]
@@ -547,6 +637,7 @@ model Department {
   updatedAt      DateTime     @updatedAt
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   memberships    Membership[]
+  workSchedules  WorkSchedule[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
@@ -1376,6 +1467,11 @@ model EsignSignature {
 
 model EsignProfile {
   id            String   @id @default(cuid())
+  // userId sengaja TANPA foreign key ke User (dilepas 2026-11-23, Phase 4):
+  // profil E-Sign adalah penyimpanan global per userId, dan pengguna tenant
+  // hanya ada di master (PlatformUser) + mirror tenant — bukan di User
+  // legacy. Dengan FK, upsert PIN/tanda tangan pengguna tenant selalu gagal
+  // (EsignProfile_userId_fkey). Semua akses hanya lookup by userId.
   userId        String   @unique
   signaturePath String?
   signatureHash String?
@@ -1383,7 +1479,6 @@ model EsignProfile {
   pinUpdatedAt  DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // Sesi percakapan tanda tangan via WhatsApp AI-Agent.
@@ -2316,4 +2411,547 @@ model MeetingNote { // notulen — pola TicketReply
   meeting   Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
 
   @@index([meetingId])
+}
+
+// ============================================================
+// WOORK WORK CALENDAR — kalender kerja terpusat (2026-11-21).
+// Satu sumber data jadwal untuk seluruh ekosistem WOORK.
+// Event manual (sourceModule NULL) + event sinkron dari modul
+// sumber (meeting, tal_task, tal_cuti, invoice, announcement,
+// holiday). Integrasi idempotent via @@unique(sourceModule,
+// sourceRecordId); modul sumber tetap pemilik data bisnisnya.
+// Holiday TIDAK diduplikasi — TalHoliday dibaca langsung.
+// ============================================================
+model CalendarEvent {
+  id             String   @id @default(cuid())
+  organizationId String
+  createdById    String
+  // Modul sumber; NULL = event manual (dibuat di kalender).
+  sourceModule   String?
+  sourceRecordId String?
+  title          String
+  description    String?  @db.Text
+  // meeting | task | project | hr | leave | attendance | training |
+  // company | personal | finance | reminder | other
+  category       String   @default("other")
+  startAt        DateTime
+  endAt          DateTime
+  timezone       String   @default("Asia/Jakarta")
+  isAllDay       Boolean  @default(false)
+  location       String?
+  meetingLink    String?
+  // PRIVATE | TEAM | DEPARTMENT | COMPANY | CUSTOM
+  visibility     String   @default("COMPANY")
+  // SCHEDULED | COMPLETED | CANCELLED
+  status         String   @default("SCHEDULED")
+  // RRULE (rrule.js) untuk event berulang; NULL = tidak berulang.
+  recurrenceRule String?
+  // Instance pengecualian (edit satu instance): menunjuk ke event induk.
+  recurrenceParentId       String?
+  recurrenceOriginalStartAt DateTime?
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy          User                @relation("CalendarEventCreator", fields: [createdById], references: [id], onDelete: Cascade)
+  recurrenceParent   CalendarEvent?      @relation("CalendarRecurrence", fields: [recurrenceParentId], references: [id], onDelete: Cascade)
+  recurrenceExceptions CalendarEvent[]   @relation("CalendarRecurrence")
+  attendees          CalendarAttendee[]
+  reminders          CalendarReminder[]
+  syncLogs           CalendarSyncLog[]
+
+  @@unique([sourceModule, sourceRecordId])
+  @@index([organizationId, startAt])
+  @@index([organizationId, status])
+  @@index([createdById])
+  @@index([recurrenceParentId])
+}
+
+model CalendarAttendee {
+  id             String    @id @default(cuid())
+  eventId        String
+  userId         String
+  // PENDING | ACCEPTED | DECLINED | TENTATIVE
+  responseStatus String    @default("PENDING")
+  respondedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  event CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+  @@index([userId])
+}
+
+model CalendarReminder {
+  id             String    @id @default(cuid())
+  eventId        String
+  userId         String
+  minutesBefore  Int
+  remindAt       DateTime
+  // PENDING | SENT | FAILED
+  deliveryStatus String    @default("PENDING")
+  sentAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  event CalendarEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([remindAt, deliveryStatus])
+  @@index([userId])
+}
+
+model CalendarSyncLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  sourceModule   String
+  sourceRecordId String
+  eventId        String?
+  // SYNCED | FAILED | PENDING
+  syncStatus     String   @default("PENDING")
+  errorMessage   String?  @db.Text
+  retryCount     Int      @default(0)
+  lastSyncedAt   DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event        CalendarEvent? @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  @@index([sourceModule, sourceRecordId])
+  @@index([organizationId, lastSyncedAt])
+}
+
+model CalendarUserPreference {
+  id                      String   @id @default(cuid())
+  userId                  String
+  organizationId          String
+  defaultView             String   @default("month") // day | week | month | agenda | year | timeline
+  timezone                String   @default("Asia/Jakarta")
+  firstDayOfWeek          Int      @default(1) // 0 = Minggu, 1 = Senin
+  workingHours            Json     @default("{}")
+  notificationPreferences Json     @default("{}")
+  visibleCalendars        Json     @default("[]")
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, organizationId])
+}
+
+// ============================================================
+// WOORK DAILY WORKSPACE — pusat aktivitas & produktivitas harian
+// (2026-11-21). HANYA agregasi + navigasi: tugas dari TalTask,
+// agenda dari CalendarEvent, meeting dari Meeting, pengingat dari
+// Notification. TIDAK ada penyimpanan tugas/kalender baru di sini.
+// Dua model baru hanya untuk catatan harian + preferensi widget.
+// Zona waktu TIDAK diduplikasi — baca CalendarUserPreference.
+// ============================================================
+model DailyWorkNote {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  // Satu catatan per pengguna per hari (upsert).
+  date           DateTime @db.Date
+  title          String?
+  content        String?  @db.Text
+  // PRIVATE | TEAM | MANAGER (default PRIVATE — tidak jadi laporan
+  // perusahaan tanpa persetujuan pengguna).
+  visibility     String   @default("PRIVATE")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId, date])
+  @@index([organizationId, userId])
+}
+
+model DailyWorkspacePreference {
+  id                   String   @id @default(cuid())
+  organizationId       String
+  userId               String
+  layoutConfiguration  Json     @default("{}")
+  visibleWidgets       Json     @default("[]")
+  widgetOrder          Json     @default("[]")
+  quickActions         Json     @default("[]")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+}
+
+// ============================================================
+// WOORK ATTENDANCE — absensi terpadu website + WhatsApp AI-Agent
+// (2026-11-21). SATU backend/engine/DB untuk kedua kanal.
+// Cuti/izin TIDAK diduplikasi — pakai TalCuti yang sudah ada.
+// Lokasi kantor default bisa diambil dari Organization lat/lng
+// (modul perusahaan); AttendanceLocation untuk multi-lokasi/cabang.
+// Jam disimpan "HH:MM" (string) agar bebas zona waktu; tanggal
+// kerja DateTime @db.Date (Asia/Jakarta). Status pakai String
+// mengikuti pola model lain di schema ini.
+// ============================================================
+model AttendanceLocation {
+  id           String   @id @default(cuid())
+  organizationId String
+  name         String
+  address      String?
+  latitude     Float
+  longitude    Float
+  // Radius geofence dalam meter (default 100).
+  radiusMeters Int      @default(100)
+  isDefault    Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  records      AttendanceRecord[]
+  settings     AttendanceSetting[]
+
+  @@index([organizationId, isActive])
+}
+
+model Shift {
+  id           String   @id @default(cuid())
+  organizationId String
+  name         String
+  // Jam "HH:MM". Bila endTime < startTime = shift malam (lintas hari).
+  startTime    String
+  endTime      String
+  isNightShift Boolean  @default(false)
+  breakMinutes Int      @default(60)
+  graceLateMinutes Int  @default(15)
+  color        String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  records      AttendanceRecord[]
+
+  @@index([organizationId, isActive])
+}
+
+model WorkSchedule {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  // Jadwal personal bila userId terisi; jadwal departemen bila
+  // departmentId terisi; keduanya NULL = template default organisasi.
+  userId         String?
+  departmentId   String?
+  // {0: shiftId|null, 1: shiftId, ..., 6: shiftId} — 0=Minggu.
+  // null = libur hari itu.
+  daysOfWeek     Json     @default("{}")
+  isDefault      Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  effectiveFrom  DateTime? @db.Date
+  effectiveTo    DateTime? @db.Date
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department   Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  records      AttendanceRecord[]
+
+  @@index([organizationId, userId])
+  @@index([organizationId, departmentId])
+}
+
+model AttendanceRecord {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  date           DateTime @db.Date
+  shiftId        String?
+  scheduleId     String?
+  locationId     String?
+  checkInAt      DateTime?
+  checkInLat     Float?
+  checkInLng     Float?
+  // WEB | WHATSAPP | MANUAL (koreksi HRD)
+  checkInMethod  String?
+  checkInNote    String?
+  checkOutAt     DateTime?
+  checkOutLat    Float?
+  checkOutLng    Float?
+  checkOutMethod String?
+  checkOutNote   String?
+  // PRESENT | LATE | EARLY_LEAVE | ABSENT | ON_LEAVE | HOLIDAY | INCOMPLETE
+  status         String   @default("INCOMPLETE")
+  lateMinutes    Int      @default(0)
+  earlyMinutes   Int      @default(0)
+  overtimeMinutes Int     @default(0)
+  workMinutes    Int      @default(0)
+  breakMinutes   Int      @default(0)
+  isRemote       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shift        Shift?       @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  schedule     WorkSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  location     AttendanceLocation? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  corrections  AttendanceCorrection[]
+
+  @@unique([organizationId, userId, date])
+  @@index([organizationId, userId])
+  @@index([organizationId, date])
+}
+
+model AttendanceCorrection {
+  id             String   @id @default(cuid())
+  organizationId String
+  recordId       String
+  requestedById  String
+  // CHECK_IN | CHECK_OUT | STATUS | DATE
+  type           String
+  reason         String
+  // Nilai yang diminta, mis. {checkInAt: "...", note: "..."}.
+  requestedValue Json     @default("{}")
+  // PENDING | APPROVED | REJECTED
+  status         String   @default("PENDING")
+  reviewedById   String?
+  reviewedAt     DateTime?
+  reviewNote     String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  record       AttendanceRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  requestedBy  User         @relation("CorrectionRequester", fields: [requestedById], references: [id], onDelete: Cascade)
+  reviewedBy   User?        @relation("CorrectionReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, recordId])
+  @@index([organizationId, status])
+}
+
+model OvertimeRequest {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  date           DateTime @db.Date
+  startTime      String
+  endTime        String
+  reason         String
+  // PENDING | APPROVED | REJECTED
+  status         String   @default("PENDING")
+  approvedById   String?
+  approvedAt     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  approvedBy   User?        @relation("OvertimeApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, userId])
+  @@index([organizationId, status])
+}
+
+model AttendanceSetting {
+  id             String   @id @default(cuid())
+  organizationId String   @unique
+  requireGeofence Boolean @default(true)
+  allowRemoteCheckIn Boolean @default(false)
+  defaultLocationId String?
+  graceLateMinutes Int    @default(15)
+  // Hari kerja default (1=Senin .. 5=Jumat); 0=Minggu, 6=Sabtu.
+  workDays       Json     @default("[1,2,3,4,5]")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  defaultLocation AttendanceLocation? @relation(fields: [defaultLocationId], references: [id], onDelete: SetNull)
+}
+
+// ============================================================
+// WOORK VIRTUAL OFFICE — MUSALA & PRAYER ACTIVITY (2026-11-21).
+// Jadwal salat: AlAdhan API method 20 (Kemenag RI) dengan fallback
+// rumus astronomis Kemenag (lib/islami/prayerTimeService.ts).
+// Lokasi default Jakarta (sama seperti modul Islami); admin WAJIB
+// mengonfirmasi lokasi perusahaan di pengaturan (org WOORK.ID belum
+// punya lat/lng). Sesi salat: state bersama per-org in-memory
+// (lib/kantor/prayer-session.ts, pola Tidur/Tema) + persistensi DB.
+// Morning Briefing 08:00 BELUM ADA sistemnya (hanya template rutin
+// TAL) — scheduler punya guard agar sesi salat tidak bentrok bila
+// briefing kelak dibangun; praktisnya waktu salat tak pernah jatuh
+// 08:00 (Subuh ~04:38, Zuhur ~11:xx, Asar ~15:xx, Magrib ~17:xx,
+// Isya ~18:xx).
+// ============================================================
+model PrayerTimeSettings {
+  id                     String   @id @default(cuid())
+  organizationId         String   @unique
+  isEnabled              Boolean  @default(true)
+  latitude               Float    @default(-6.2088)
+  longitude              Float    @default(106.8456)
+  cityName               String?
+  timezone               String   @default("Asia/Jakarta")
+  // "kemenag" = AlAdhan method 20; "astronomical" = rumus Kemenag lokal.
+  calculationMethod      String   @default("kemenag")
+  // "shafii" (bayangan 1) | "hanafi" (bayangan 2).
+  asrMethod              String   @default("shafii")
+  adjustmentMinutes      Int      @default(0)
+  sessionDurationMinutes Int      @default(10)
+  enableAnimation        Boolean  @default(true)
+  autoReturn             Boolean  @default(true)
+  excludedAgentIds       Json     @default("[]")
+  defaultImamAgentId     String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model DailyPrayerSchedule {
+  id             String   @id @default(cuid())
+  organizationId String
+  prayerDate     DateTime @db.Date
+  fajrTime       String
+  dhuhrTime      String
+  asrTime        String
+  maghribTime    String
+  ishaTime       String
+  imsakTime      String?
+  sunriseTime    String?
+  // "kemenag_api" | "kemenag_astronomical"
+  source         String   @default("kemenag_astronomical")
+  cityName       String?
+  latitude       Float
+  longitude      Float
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, prayerDate])
+  @@index([organizationId, prayerDate])
+}
+
+model PrayerSession {
+  id             String   @id @default(cuid())
+  organizationId String
+  // "subuh" | "dzuhur" | "ashar" | "maghrib" | "isya"
+  prayerName     String
+  prayerDate     DateTime @db.Date
+  scheduledAt    DateTime
+  startedAt      DateTime?
+  endedAt        DateTime?
+  // SCHEDULED | IN_PROGRESS | COMPLETED | MISSED | STOPPED
+  status         String   @default("SCHEDULED")
+  participantCount Int    @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  participants PrayerSessionParticipant[]
+
+  @@unique([organizationId, prayerDate, prayerName])
+  @@index([organizationId, prayerDate])
+}
+
+model PrayerSessionParticipant {
+  id             String   @id @default(cuid())
+  sessionId      String
+  agentId        String
+  agentName      String?
+  isImam         Boolean  @default(false)
+  initialRoom    String?
+  initialPosition Json?
+  prayerPosition Json?
+  // INVITED | WALKING | PRAYING | RETURNED | COMPLETED | SKIPPED
+  status         String   @default("INVITED")
+  arrivedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  session PrayerSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, agentId])
+  @@index([sessionId])
+}
+
+// ============================================================
+// WOORK VIRTUAL OFFICE — MORNING BRIEFING (2026-11-21).
+// Briefing harian 08:00 WIB di ruang meeting. State bersama per-org
+// in-memory (lib/kantor/briefing-session.ts, pola Tidur/Tema/Salat)
+// + persistensi DB. Monitor ruang meeting = slideshow dinamis
+// (branding, agenda, kalender, tugas — data NYATA, bukan angka
+// karangan). TV menampilkan woork.id BILA bisa di-embed (cek
+// X-Frame-Options/CSP); bila diblokir, fallback slideshow branding.
+// ============================================================
+model BriefingSettings {
+  id                  String   @id @default(cuid())
+  organizationId      String   @unique
+  isEnabled           Boolean  @default(true)
+  startTime           String   @default("08:00")
+  timezone            String   @default("Asia/Jakarta")
+  durationMinutes     Int      @default(10)
+  preparationMinutes  Int      @default(2)
+  meetingLeaderId     String?
+  // "all" | "selected" (bila selected, pakai excludedAgentIds terbalik:
+  // hanya agent yang TIDAK dikecualikan — sederhanakan: excludedAgentIds)
+  participantMode     String   @default("all")
+  excludedAgentIds    Json     @default("[]")
+  autoReturn          Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+model BriefingSession {
+  id             String   @id @default(cuid())
+  organizationId String
+  scheduledDate  DateTime @db.Date
+  scheduledAt    DateTime
+  startedAt      DateTime?
+  endedAt        DateTime?
+  // SCHEDULED | PREPARING | AGENTS_MOVING | GATHERING | IN_PROGRESS | CLOSING | RETURNING | COMPLETED | FAILED
+  status         String   @default("SCHEDULED")
+  participantCount Int    @default(0)
+  meetingLeaderId String?
+  errorMessage   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  participants BriefingParticipant[]
+
+  @@unique([organizationId, scheduledDate])
+  @@index([organizationId, scheduledDate])
+}
+
+model BriefingParticipant {
+  id             String   @id @default(cuid())
+  sessionId      String
+  agentId        String
+  agentName      String?
+  isLeader       Boolean  @default(false)
+  initialRoom    String?
+  initialPosition Json?
+  meetingPosition Json?
+  // INVITED | MOVING | SEATED | PRESENTING | RETURNED | COMPLETED | SKIPPED
+  status         String   @default("INVITED")
+  arrivedAt      DateTime?
+  leftAt         DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  session BriefingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, agentId])
+  @@index([sessionId])
 }
