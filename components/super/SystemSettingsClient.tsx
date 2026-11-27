@@ -167,7 +167,7 @@ export function SystemSettingsClient() {
             <Input
               value={values.turnstile_secret_key}
               onChange={(e) => set('turnstile_secret_key', e.target.value)}
-              placeholder="0x4AAAAAAA••••••••••••"
+              placeholder="Belum diisi — tempel Secret Key dari dashboard Cloudflare"
               autoComplete="off"
               spellCheck={false}
             />
